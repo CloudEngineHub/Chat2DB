@@ -1,6 +1,6 @@
 import i18n from '@/i18n';
 import { Form } from 'antd';
-import { SquarePen } from 'lucide-react';
+import { Copy, SquarePen } from 'lucide-react';
 import { type ReactNode, useRef } from 'react';
 import { v4 as uuid } from 'uuid';
 
@@ -366,7 +366,11 @@ export const useCreateRightClickMenu = () => {
       // copyName
       [OperationColumn.CopyName]: {
         text: i18n('common.button.copyName'),
-        icon: <span aria-hidden="true" style={{ display: 'inline-block', width: 20, height: 20 }} />,
+        icon: (
+          <span style={{ alignItems: 'center', display: 'inline-flex', height: 20, justifyContent: 'center', width: 20 }}>
+            <Copy size={18} strokeWidth={1.75} />
+          </span>
+        ),
         handle: () => {
           copyToClipboard(treeNodeData.originalTitle);
         },
