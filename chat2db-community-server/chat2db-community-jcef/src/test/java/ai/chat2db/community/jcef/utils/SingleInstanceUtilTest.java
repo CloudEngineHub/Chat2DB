@@ -99,9 +99,9 @@ class SingleInstanceUtilTest {
 
         primary.command("READY");
         await(() -> lineCount(primary.received()) == 2);
-        List<String[]> received = readRequests(primary.received());
-        assertArrayEquals(new String[]{firstFile.toString()}, received.get(0));
-        assertArrayEquals(new String[]{secondFile.toString()}, received.get(1));
+        List<String> received = readRequests(primary.received());
+        assertEquals(firstFile.toString(), received.get(0));
+        assertEquals(secondFile.toString(), received.get(1));
     }
 
     @Test
@@ -117,12 +117,12 @@ class SingleInstanceUtilTest {
             start(state, -1, arguments.get(index)).awaitSecondary();
             int expected = index + 2;
             await(() -> lineCount(primary.received()) == expected);
-            assertArrayEquals(new String[]{arguments.get(index)}, readRequests(primary.received()).get(index + 1));
+            assertEquals(arguments.get(index), readRequests(primary.received()).get(index + 1));
         }
     }
 
     @Test
-    void windowStartupCanRegisterAgainWithoutReplayingArguments() throws Exception {
+    void repeatedRegistrationDoesNotReplayArguments() throws Exception {
         Path state = temporary.resolve("state");
         Path sql = Files.writeString(temporary.resolve("initial.sql"), "select 1");
         Child primary = start(state, -1, sql.toString());
@@ -134,8 +134,8 @@ class SingleInstanceUtilTest {
         assertEquals("true", Files.readString(primary.directory.resolve("registered-again")));
         start(state, -1).awaitSecondary();
         await(() -> lineCount(primary.received()) == 2);
-        assertArrayEquals(new String[]{sql.toString()}, readRequests(primary.received()).get(0));
-        assertArrayEquals(new String[0], readRequests(primary.received()).get(1));
+        assertEquals(sql.toString(), readRequests(primary.received()).get(0));
+        assertEquals("", readRequests(primary.received()).get(1));
     }
 
     @Test
@@ -147,7 +147,7 @@ class SingleInstanceUtilTest {
         await(() -> lineCount(primary.received()) == 1);
         start(state, -1).awaitSecondary();
         await(() -> lineCount(primary.received()) == 2);
-        assertTrue(readRequests(primary.received()).stream().allMatch(args -> args.length == 0));
+        assertTrue(readRequests(primary.received()).stream().allMatch(String::isEmpty));
     }
 
     @Test
@@ -166,8 +166,7 @@ class SingleInstanceUtilTest {
             Files.move(replacement, state.resolve("app.ipc"), ATOMIC_MOVE, REPLACE_EXISTING);
             int expectedCount = index + 2;
             await(() -> lineCount(primary.received()) == expectedCount);
-            assertArrayEquals(arguments.get(index).isEmpty() ? new String[0] : new String[]{arguments.get(index)},
-                    readRequests(primary.received()).get(index + 1));
+            assertEquals(arguments.get(index), readRequests(primary.received()).get(index + 1));
             Thread.sleep(250);
             assertEquals(expectedCount, lineCount(primary.received()), "Late file events repeated a request");
         }
@@ -193,7 +192,7 @@ class SingleInstanceUtilTest {
             primary.command("RESUME_DELIVERY");
         }
         await(() -> lineCount(primary.received()) == 3);
-        assertArrayEquals(new String[]{"other.sql"}, readRequests(primary.received()).get(2));
+        assertEquals("other.sql", readRequests(primary.received()).get(2));
         Thread.sleep(300);
         assertEquals(3, lineCount(primary.received()));
     }
@@ -256,10 +255,9 @@ class SingleInstanceUtilTest {
         primary.command("READY");
         start(InstanceProcess.class, state, -1, sender, sql.getFileName().toString()).awaitSecondary();
         await(() -> lineCount(primary.received()) == 2);
-        String[] arguments = readRequests(primary.received()).get(1);
-        assertEquals(1, arguments.length);
-        assertTrue(Path.of(arguments[0]).isAbsolute());
-        assertTrue(Files.isSameFile(sql, Path.of(arguments[0])));
+        String argument = readRequests(primary.received()).get(1);
+        assertTrue(Path.of(argument).isAbsolute());
+        assertTrue(Files.isSameFile(sql, Path.of(argument)));
     }
 
     @Test
@@ -294,8 +292,7 @@ class SingleInstanceUtilTest {
         assertFalse(Files.exists(primary.received()));
         primary.command("READY");
         await(() -> lineCount(primary.received()) == 2);
-        assertTrue(readRequests(primary.received()).stream()
-                .anyMatch(args -> Arrays.equals(args, new String[]{sql.toString()})));
+        assertTrue(readRequests(primary.received()).contains(sql.toString()));
     }
 
     @Test
@@ -306,7 +303,7 @@ class SingleInstanceUtilTest {
         legacy.awaitPrimary();
         start(state, -1, sql.toString()).awaitSecondary();
         await(() -> lineCount(legacy.received()) == 1);
-        assertArrayEquals(new String[]{sql.toString()}, readRequests(legacy.received()).get(0));
+        assertEquals(sql.toString(), readRequests(legacy.received()).get(0));
         assertFalse(Files.exists(state.resolve("app.ipc.d")), "New sender queued a request the old owner cannot read");
     }
 
@@ -320,7 +317,7 @@ class SingleInstanceUtilTest {
         await(() -> lineCount(primary.received()) == 1);
         start(state, -1).awaitSecondary();
         await(() -> lineCount(primary.received()) == 2);
-        assertTrue(readRequests(primary.received()).stream().allMatch(args -> args.length == 0));
+        assertTrue(readRequests(primary.received()).stream().allMatch(String::isEmpty));
     }
 
     private Child start(Path state, int port, String... arguments) throws Exception {
@@ -353,10 +350,10 @@ class SingleInstanceUtilTest {
         }
     }
 
-    private static List<String[]> readRequests(Path path) throws Exception {
-        List<String[]> result = new ArrayList<>();
+    private static List<String> readRequests(Path path) throws Exception {
+        List<String> result = new ArrayList<>();
         for (String line : Files.readAllLines(path)) {
-            result.add(MAPPER.readValue(line, String[].class));
+            result.add(MAPPER.readValue(line, String.class));
         }
         return result;
     }
@@ -445,10 +442,10 @@ class SingleInstanceUtilTest {
             String command;
             while ((command = input.readLine()) != null) {
                 switch (command) {
-                    case "READY" -> SingleInstanceUtil.onReady(arguments -> {
+                    case "READY" -> SingleInstanceUtil.onReady(argument -> {
                         try {
                             Files.writeString(directory.resolve("received.jsonl"),
-                                    MAPPER.writeValueAsString(arguments) + "\n", CREATE, APPEND);
+                                    MAPPER.writeValueAsString(argument) + "\n", CREATE, APPEND);
                             CountDownLatch pause = deliveryPause.get();
                             if (pause != null) {
                                 Files.createFile(directory.resolve("delivery-paused"));
@@ -490,7 +487,7 @@ class SingleInstanceUtilTest {
                         Path ipc = state.resolve("app.ipc");
                         while (!Files.exists(ipc)) { Thread.sleep(25); }
                         Files.writeString(directory.resolve("received.jsonl"),
-                                MAPPER.writeValueAsString(new String[]{Files.readString(ipc)}) + "\n");
+                                MAPPER.writeValueAsString(Files.readString(ipc)) + "\n");
                     } catch (Exception exception) { throw new RuntimeException(exception); }
                 });
                 listener.setDaemon(true);

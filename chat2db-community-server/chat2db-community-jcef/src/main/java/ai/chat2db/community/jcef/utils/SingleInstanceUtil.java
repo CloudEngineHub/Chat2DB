@@ -31,7 +31,7 @@ import static java.nio.file.StandardOpenOption.WRITE;
 @Slf4j
 public final class SingleInstanceUtil {
     private static FileLock fileLock;
-    private static volatile Consumer<String[]> argumentConsumer;
+    private static volatile Consumer<String> argumentConsumer;
 
     private SingleInstanceUtil() {
     }
@@ -109,7 +109,7 @@ public final class SingleInstanceUtil {
         }
     }
 
-    public static void onReady(Consumer<String[]> consumer) {
+    public static void onReady(Consumer<String> consumer) {
         argumentConsumer = consumer;
     }
 
@@ -122,10 +122,6 @@ public final class SingleInstanceUtil {
                 ? value : Path.of(value).toAbsolutePath().normalize().toString();
     }
 
-    private static String[] arguments(String argument) {
-        return argument.isEmpty() ? new String[0] : new String[]{argument};
-    }
-
     private static IpcVersion ipcVersion(Path ipc) throws IOException {
         try {
             BasicFileAttributes attributes = Files.readAttributes(ipc, BasicFileAttributes.class);
@@ -136,8 +132,8 @@ public final class SingleInstanceUtil {
     }
 
     private static void listen(Path ipc, WatchService watcher, IpcVersion lastWrite, String initialArgument) {
-        Queue<String[]> pending = new ArrayDeque<>();
-        pending.add(arguments(initialArgument));
+        Queue<String> pending = new ArrayDeque<>();
+        pending.add(initialArgument);
         boolean failed = false;
         boolean ipcChanged = false;
         String lastArgument = null;
@@ -149,14 +145,14 @@ public final class SingleInstanceUtil {
                         String argument = Files.readString(ipc);
                         if (modified.equals(ipcVersion(ipc))) {
                             if (!modified.equals(lastWrite) || !Objects.equals(argument, lastArgument)) {
-                                pending.add(arguments(argument));
+                                pending.add(argument);
                             }
                             lastWrite = modified;
                             lastArgument = argument;
                             ipcChanged = false;
                         }
                     }
-                    Consumer<String[]> handler = argumentConsumer;
+                    Consumer<String> handler = argumentConsumer;
                     while (handler != null && !pending.isEmpty()) {
                         handler.accept(pending.element());
                         pending.remove();

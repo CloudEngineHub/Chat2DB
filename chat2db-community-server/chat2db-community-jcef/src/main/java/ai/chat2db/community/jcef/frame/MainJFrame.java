@@ -165,9 +165,9 @@ public class MainJFrame extends JFrame {
             }
         }
     }
-    public void handleLaunchRequest(String[] arguments) {
+    public void handleLaunchRequest(String argument) {
         SwingUtilities.invokeLater(() -> {
-            for (String argument : arguments) {
+            if (StringUtils.isNotEmpty(argument)) {
                 try {
                     processUri(UriUtil.processInput(argument));
                 } catch (RuntimeException exception) {
@@ -181,10 +181,6 @@ public class MainJFrame extends JFrame {
         });
     }
     public void start(String[] args) {
-        // Older product entry points still reach the window before registering an instance.
-        if (!SingleInstanceUtil.registerDesktopInstance(args)) {
-            System.exit(0);
-        }
         UrlProtocolRegistrarUtil.register();
         initPreProcessor();
         initializeCefApp(args);
