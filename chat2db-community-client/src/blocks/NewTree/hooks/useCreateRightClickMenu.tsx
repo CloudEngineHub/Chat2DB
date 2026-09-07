@@ -32,6 +32,7 @@ import sqlService from '@/service/sql';
 import { copyToClipboard, getParentNode } from '@/utils';
 import { staticMessage, staticModal } from '@chat2db/ui';
 import { deleteTable } from '../functions/deleteTable';
+import { openCopyTableModal } from '../functions/copyTable';
 import { generateJavaClass } from '../functions/generateJavaClass';
 import { neatenMoveToGroup } from '../functions/moveToGroup';
 import { editView, openFunction, openProcedure, openTrigger, openView } from '../functions/openAsyncSql';
@@ -269,6 +270,16 @@ export const useCreateRightClickMenu = () => {
       handleLoadData(treeNodeData, {
         refresh: true,
       });
+    };
+
+    const handleCopyTable = (copyData: boolean) => {
+      void openCopyTableModal(
+        { dataSourceId: dataSourceId!, databaseName: databaseName!, schemaName, tableName: tableName!, copyData },
+        () => {
+          const parentNode = getParentNode(treeNodeData.key, treeData);
+          if (parentNode) handleLoadData(parentNode, { refresh: true });
+        },
+      ).catch(() => {});
     };
 
     const renderDeleteInputConfirmLabel = (labelKey: string, confirmName: string) => {
@@ -1207,46 +1218,12 @@ export const useCreateRightClickMenu = () => {
           {
             text: i18n('workspace.menu.copyStructure'),
             requiredOperations: ['CREATE'],
-            handle: () => {
-              sqlService
-                .copyTable({
-                  dataSourceId: dataSourceId!,
-                  databaseName: databaseName!,
-                  schemaName,
-                  tableName: tableName!,
-                  copyData: false,
-                })
-                .then(() => {
-                  const parentNode = getParentNode(treeNodeData.key, treeData);
-                  if (parentNode) {
-                    handleLoadData(parentNode, {
-                      refresh: true,
-                    });
-                  }
-                });
-            },
+            handle: () => handleCopyTable(false),
           },
           {
             text: i18n('workspace.menu.copyStructureData'),
             requiredOperations: ['CREATE', 'SELECT', 'INSERT'],
-            handle: () => {
-              sqlService
-                .copyTable({
-                  dataSourceId: dataSourceId!,
-                  databaseName: databaseName!,
-                  schemaName,
-                  tableName: tableName!,
-                  copyData: true,
-                })
-                .then(() => {
-                  const parentNode = getParentNode(treeNodeData.key, treeData);
-                  if (parentNode) {
-                    handleLoadData(parentNode, {
-                      refresh: true,
-                    });
-                  }
-                });
-            },
+            handle: () => handleCopyTable(true),
           },
         ],
         requiredOperations: ['CREATE'],
