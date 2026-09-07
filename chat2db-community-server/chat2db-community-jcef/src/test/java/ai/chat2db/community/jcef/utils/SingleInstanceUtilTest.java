@@ -9,8 +9,10 @@ import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.DataOutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
@@ -24,6 +26,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 
 import static java.nio.file.StandardOpenOption.APPEND;
@@ -205,14 +208,108 @@ class SingleInstanceUtilTest {
         int port = primary.port();
         primary.command("EXIT");
         await(() -> Files.exists(primary.directory.resolve("stopping")));
-        start(state, port).awaitSecondary();
+        Child restarted = start(state, port);
+        await(() -> restarted.output().contains("Waiting for the previous desktop instance to exit"));
+        assertFalse(Files.exists(restarted.status()), "New instance initialized before the old process exited");
         Files.createFile(primary.directory.resolve("allow-exit"));
         assertTrue(primary.process.waitFor(10, TimeUnit.SECONDS));
         assertTrue(Files.exists(state.resolve("app.lock")));
 
-        Child restarted = start(state, port);
         restarted.awaitPrimary();
         assertEquals(port, restarted.port());
+    }
+
+    @Test
+    void concurrentRequestsAreConfirmedBeforeWindowReadinessWithoutOverwriting() throws Exception {
+        Path state = temporary.resolve("state");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        List<String> expected = new ArrayList<>();
+        List<Child> senders = new ArrayList<>();
+        for (int index = 0; index < 12; index++) {
+            Path file = Files.writeString(temporary.resolve("file-" + index + ".sql"), "select " + index);
+            expected.add(file.toString());
+            senders.add(start(state, -1, file.toString()));
+        }
+        for (Child sender : senders) { sender.awaitSecondary(); }
+        assertFalse(Files.exists(primary.received()));
+        primary.command("READY");
+        await(() -> lineCount(primary.received()) == 13);
+        assertEquals(expected.stream().sorted().toList(),
+                readRequests(primary.received()).subList(1, 13).stream().sorted().toList());
+        assertFalse(Files.exists(state.resolve("app.ipc")), "Current senders still used the shared mailbox");
+    }
+
+    @Test
+    void blockedWindowDispatchDoesNotBlockReceiptOrLoseRepeatedRequests() throws Exception {
+        Path state = temporary.resolve("state");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY");
+        await(() -> lineCount(primary.received()) == 1);
+        primary.command("PAUSE_NEXT_DELIVERY");
+        await(() -> Files.exists(primary.directory.resolve("pause-enabled")));
+        start(state, -1).awaitSecondary();
+        await(() -> Files.exists(primary.directory.resolve("delivery-paused")));
+        String file = Files.writeString(temporary.resolve("repeated.sql"), "select 1").toString();
+        List<String> expected = List.of(file, "", "chat2db-community://open?console=test", file, "", file);
+        try {
+            List<Child> senders = new ArrayList<>();
+            for (String argument : expected) {
+                senders.add(argument.isEmpty() ? start(state, -1) : start(state, -1, argument));
+            }
+            for (Child sender : senders) { sender.awaitSecondary(); }
+            assertEquals(2, lineCount(primary.received()));
+        } finally {
+            primary.command("RESUME_DELIVERY");
+        }
+        await(() -> lineCount(primary.received()) == expected.size() + 2);
+        assertEquals(expected.stream().sorted().toList(),
+                readRequests(primary.received()).subList(2, 8).stream().sorted().toList());
+    }
+
+    @Test
+    void receiverRejectsWrongTokensAndSurvivesIncompleteRequests() throws Exception {
+        Path state = temporary.resolve("state");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY");
+        await(() -> lineCount(primary.received()) == 1);
+        var endpoint = MAPPER.readTree(state.resolve("app.ipc.endpoint").toFile());
+        try (Socket socket = new Socket("127.0.0.1", endpoint.get("port").asInt())) {
+            socket.setSoTimeout(5000);
+            DataOutputStream output = new DataOutputStream(socket.getOutputStream());
+            output.writeUTF("wrong-token");
+            output.flush();
+            assertEquals(-1, socket.getInputStream().read());
+        }
+        try (Socket socket = new Socket("127.0.0.1", endpoint.get("port").asInt())) {
+            socket.setSoTimeout(5000);
+            DataOutputStream output = new DataOutputStream(socket.getOutputStream());
+            output.writeUTF(endpoint.get("token").asText());
+            output.writeInt(10);
+            output.writeByte(1);
+            output.flush();
+            assertEquals(-1, socket.getInputStream().read());
+        }
+        start(state, -1).awaitSecondary();
+        await(() -> lineCount(primary.received()) == 2);
+    }
+
+    @Test
+    void aFailedDeliveryIsRetriedWithoutStoppingOtherRequests() throws Exception {
+        Path state = temporary.resolve("state");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY");
+        await(() -> lineCount(primary.received()) == 1);
+        primary.command("FAIL_NEXT_DELIVERY");
+        await(() -> Files.exists(primary.directory.resolve("failure-enabled")));
+        start(state, -1).awaitSecondary();
+        await(() -> lineCount(primary.received()) == 2);
+        assertTrue(primary.output().contains("Cannot dispatch desktop launch request"));
+        start(state, -1).awaitSecondary();
+        await(() -> lineCount(primary.received()) == 3);
     }
 
     @Test
@@ -329,6 +426,7 @@ class SingleInstanceUtilTest {
         String executable = System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java";
         List<String> command = new ArrayList<>(List.of(
                 Path.of(System.getProperty("java.home"), "bin", executable).toString(),
+                "-DsocksProxyHost=127.0.0.1", "-DsocksProxyPort=1", "-DsocksNonProxyHosts=",
                 "-cp", System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
                 mainClass.getName(), state.toString(), directory.toString(), String.valueOf(port)));
         command.addAll(Arrays.asList(arguments));
@@ -438,11 +536,15 @@ class SingleInstanceUtilTest {
             }));
             publish(directory.resolve("status"), "PRIMARY");
             AtomicReference<CountDownLatch> deliveryPause = new AtomicReference<>();
+            AtomicBoolean failNextDelivery = new AtomicBoolean();
             BufferedReader input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
             String command;
             while ((command = input.readLine()) != null) {
                 switch (command) {
                     case "READY" -> SingleInstanceUtil.onReady(argument -> {
+                        if (failNextDelivery.getAndSet(false)) {
+                            throw new IllegalStateException("Injected dispatch failure");
+                        }
                         try {
                             Files.writeString(directory.resolve("received.jsonl"),
                                     MAPPER.writeValueAsString(argument) + "\n", CREATE, APPEND);
@@ -461,6 +563,10 @@ class SingleInstanceUtilTest {
                         Files.createFile(directory.resolve("pause-enabled"));
                     }
                     case "RESUME_DELIVERY" -> deliveryPause.getAndSet(null).countDown();
+                    case "FAIL_NEXT_DELIVERY" -> {
+                        failNextDelivery.set(true);
+                        Files.createFile(directory.resolve("failure-enabled"));
+                    }
                     case "REGISTER_AGAIN" -> publish(directory.resolve("registered-again"), String.valueOf(
                             SingleInstanceUtil.registerInstance(Path.of(args[0]), Arrays.copyOfRange(args, 3, args.length))));
                     case "STOP" -> {
