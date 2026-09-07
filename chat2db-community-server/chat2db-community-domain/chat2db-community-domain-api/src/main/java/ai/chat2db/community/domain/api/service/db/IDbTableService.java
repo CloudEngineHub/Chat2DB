@@ -158,5 +158,7 @@ public interface IDbTableService {
      *
      * @param dbTableCopyRequest table copy parameters.
      */
+    String prepareCopyTable(String tableName);
+
     void copyTable(DbTableCopyRequest dbTableCopyRequest);
 }
