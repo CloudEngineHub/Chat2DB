@@ -1,12 +1,15 @@
 package ai.chat2db.community.web.api.controller;
 
 import ai.chat2db.community.domain.api.model.PageResponse;
+import ai.chat2db.community.domain.api.model.db.ImportPreview;
 import ai.chat2db.community.domain.api.model.task.ExportTaskSpec;
+import ai.chat2db.community.domain.api.model.task.ImportColumnMapping;
 import ai.chat2db.community.domain.api.model.task.ImportTaskSpec;
 import ai.chat2db.community.domain.api.model.task.Task;
 import ai.chat2db.community.domain.api.model.task.TaskDownload;
 import ai.chat2db.community.domain.api.model.task.TaskEvent;
 import ai.chat2db.community.domain.api.model.task.TaskQuery;
+import ai.chat2db.community.domain.api.service.db.IDbImportPreviewService;
 import ai.chat2db.community.domain.api.service.file.IImportFileRegistry;
 import ai.chat2db.community.domain.api.service.task.TaskService;
 import ai.chat2db.community.web.api.model.request.data.source.DataSourceBaseRequest;
@@ -22,7 +25,7 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -48,6 +51,31 @@ class DbImportPreviewControllerTest {
     }
 
     @Test
+    void previewCarriesSchemaNameIntoMetadataRequest() throws Exception {
+        File stagedFile = tempDirectory.resolve("orders.csv").toFile();
+        Files.writeString(stagedFile.toPath(), "name\nAlice\n");
+        AtomicReference<String> capturedSchemaName = new AtomicReference<>();
+        IDbImportPreviewService importPreviewService = (dataSourceId, databaseName, schemaName, tableName, file) -> {
+            capturedSchemaName.set(schemaName);
+            return ImportPreview.builder().build();
+        };
+        DbImportPreviewController controller = new DbImportPreviewController();
+        setField(controller, "importPreviewService", importPreviewService);
+        setField(controller, "importFileRegistry", new CapturingImportFileRegistry(stagedFile));
+        DbImportPreviewController.ImportPreviewRequest request =
+                new DbImportPreviewController.ImportPreviewRequest();
+        request.setDataSourceId(7L);
+        request.setDatabaseName("app");
+        request.setSchemaName("public");
+        request.setTableName("orders");
+        request.setFileId("file-1");
+
+        controller.preview(request);
+
+        assertEquals("public", capturedSchemaName.get());
+    }
+
+    @Test
     void executeCarriesSchemaNameIntoSubmittedTaskTargetSnapshot() throws Exception {
         File stagedFile = tempDirectory.resolve("orders.csv").toFile();
         Files.writeString(stagedFile.toPath(), "name\nAlice\n");
@@ -63,7 +91,8 @@ class DbImportPreviewControllerTest {
         request.setSchemaName("public");
         request.setTableName("orders");
         request.setFileId("file-1");
-        request.setMappings(List.of(Map.of("sourceColumn", "Name", "targetColumn", "name")));
+        request.setMappings(List.of(ImportColumnMapping.builder()
+                .sourceColumn("Name").targetColumn("name").build()));
 
         DataResult<TaskSubmitResponse> result = controller.execute(request);
 

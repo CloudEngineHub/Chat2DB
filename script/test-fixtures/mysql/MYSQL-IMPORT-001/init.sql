@@ -5,17 +5,17 @@ CREATE DATABASE IF NOT EXISTS `import001_test`;
 USE `import001_test`;
 
 CREATE TABLE IF NOT EXISTS `import001_contacts` (
-    `id` BIGINT NOT NULL AUTO_INCREMENT,
-    `name` VARCHAR(64) NOT NULL,
-    `email` VARCHAR(128) DEFAULT NULL,
-    `age` INT DEFAULT NULL,
-    `note` VARCHAR(255) DEFAULT 'imported',
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT 'Primary key',
+    `name` VARCHAR(64) NOT NULL COMMENT 'Contact name',
+    `email` VARCHAR(128) DEFAULT NULL COMMENT 'Email address',
+    `age` INT DEFAULT NULL COMMENT 'Age',
+    `note` VARCHAR(255) DEFAULT 'imported' COMMENT 'Import note',
     PRIMARY KEY (`id`)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS `import001_strict` (
-    `id` BIGINT NOT NULL AUTO_INCREMENT,
-    `code` VARCHAR(32) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT 'Primary key',
+    `code` VARCHAR(32) NOT NULL COMMENT 'Business code',
     PRIMARY KEY (`id`)
 ) ENGINE=InnoDB;
 

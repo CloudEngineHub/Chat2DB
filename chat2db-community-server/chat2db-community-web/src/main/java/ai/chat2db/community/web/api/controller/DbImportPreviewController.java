@@ -1,6 +1,8 @@
 package ai.chat2db.community.web.api.controller;
 
 import ai.chat2db.community.domain.api.service.db.IDbImportPreviewService;
+import ai.chat2db.community.domain.api.model.db.ImportPreview;
+import ai.chat2db.community.domain.api.model.task.ImportColumnMapping;
 import ai.chat2db.community.domain.api.service.file.IImportFileRegistry;
 import ai.chat2db.community.domain.api.service.file.IUploadFileService;
 import ai.chat2db.community.domain.api.service.task.TaskService;
@@ -25,10 +27,9 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.File;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 /**
- * Bounded import preview and column mapping (MYSQL-IMPORT-001). Preview and execution
+ * Database-independent, bounded import preview and column mapping. Preview and execution
  * share the same parser; nothing is written during preview.
  */
 @ConnectionInfoAspect
@@ -64,9 +65,9 @@ public class DbImportPreviewController {
     }
 
     @PostMapping("/preview")
-    public DataResult<Map<String, Object>> preview(@Valid @RequestBody ImportPreviewRequest request) {
+    public DataResult<ImportPreview> preview(@Valid @RequestBody ImportPreviewRequest request) {
         return DataResult.of(importPreviewService.preview(request.getDataSourceId(), request.getDatabaseName(),
-                request.getTableName(), importFileRegistry.resolve(request.getFileId())));
+                request.getSchemaName(), request.getTableName(), importFileRegistry.resolve(request.getFileId())));
     }
 
     @PostMapping("/execute")
@@ -125,7 +126,7 @@ public class DbImportPreviewController {
         @NotBlank
         private String fileId;
 
-        private List<Map<String, String>> mappings;
+        private List<ImportColumnMapping> mappings;
 
         private String unmappedTarget;
     }

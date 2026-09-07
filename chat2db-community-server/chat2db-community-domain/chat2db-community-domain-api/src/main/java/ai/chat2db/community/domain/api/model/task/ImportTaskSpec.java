@@ -6,7 +6,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
-import java.util.Map;
 
 @Data
 @Builder
@@ -32,7 +31,7 @@ public class ImportTaskSpec implements TaskSpec {
     private String dataTimeFormat;
 
     /** Optional mapping supplied by the import-preview workflow. */
-    private List<Map<String, String>> columnMappings;
+    private List<ImportColumnMapping> columnMappings;
 
     private String unmappedTarget;
 }

@@ -34,3 +34,5 @@ export const ACTIVE_TASK_STATUSES: ImportExportTaskStatus[] = [
   ImportExportTaskStatus.RUNNING,
   ImportExportTaskStatus.CANCELLING,
 ];
+
+export const SKIP_IMPORT_SOURCE_FIELD = '__skip__';

@@ -1,6 +1,8 @@
 package ai.chat2db.community.domain.core.impl.db;
 
 import ai.chat2db.community.domain.api.service.db.IDbImportPreviewService;
+import ai.chat2db.community.domain.api.model.db.ImportPreview;
+import ai.chat2db.community.domain.api.model.task.ImportColumnMapping;
 import ai.chat2db.community.tools.exception.BusinessException;
 import ai.chat2db.spi.sql.Chat2DBContext;
 import ai.chat2db.spi.model.request.TableMetadataRequest;
@@ -21,78 +23,76 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Bounded import preview with column mapping (MYSQL-IMPORT-001). CSV/XLS/XLSX are parsed
- * through EasyExcel; the preview reads only the first {@link #PREVIEW_ROW_LIMIT} rows and
- * never writes.
+ * Database-independent import preview. CSV/XLS/XLSX are parsed through EasyExcel; the
+ * preview reads only the first {@link #PREVIEW_ROW_LIMIT} rows and never writes.
  */
 @Slf4j
 @Service
 public class DbImportPreviewServiceImpl implements IDbImportPreviewService {
 
-    private static final int PREVIEW_ROW_LIMIT = 50;
+    private static final int PREVIEW_ROW_LIMIT = 10;
     @Override
-    public Map<String, Object> preview(Long dataSourceId, String databaseName, String tableName,
-                                       File file) {
+    public ImportPreview preview(Long dataSourceId, String databaseName, String schemaName,
+                                 String tableName, File file) {
         List<Map<Integer, String>> rows = parseRows(file, PREVIEW_ROW_LIMIT);
         if (rows.isEmpty()) {
             throw new BusinessException("import.preview.emptyFile");
         }
         Map<Integer, String> header = rows.get(0);
-        List<Map<String, Object>> sourceColumns = new ArrayList<>();
         List<String> sourceNames = new ArrayList<>();
         for (int i = 0; i < header.size(); i++) {
             String name = StringUtils.defaultIfBlank(header.get(i), "column_" + (i + 1));
             sourceNames.add(name);
-            List<String> samples = new ArrayList<>();
-            for (int r = 1; r < rows.size(); r++) {
-                String value = rows.get(r).get(i);
-                samples.add(value == null ? "" : value);
-            }
-            Map<String, Object> column = new LinkedHashMap<>();
-            column.put("name", name);
-            column.put("sampleValues", samples);
-            sourceColumns.add(column);
         }
 
-        List<Map<String, Object>> targetColumns = targetColumns(dataSourceId, databaseName, tableName);
-        List<Map<String, String>> suggested = new ArrayList<>();
+        List<List<String>> previewData = new ArrayList<>();
+        for (int rowIndex = 1; rowIndex < rows.size(); rowIndex++) {
+            List<String> values = new ArrayList<>();
+            for (int columnIndex = 0; columnIndex < sourceNames.size(); columnIndex++) {
+                values.add(StringUtils.defaultString(rows.get(rowIndex).get(columnIndex)));
+            }
+            previewData.add(values);
+        }
+
+        List<ImportPreview.TargetColumn> targetColumns = targetColumns(dataSourceId, databaseName, schemaName,
+                tableName);
+        List<ImportColumnMapping> suggested = new ArrayList<>();
         for (String source : sourceNames) {
             targetColumns.stream()
-                    .filter(tc -> StringUtils.equalsIgnoreCase((String) tc.get("name"), source))
+                    .filter(target -> StringUtils.equalsIgnoreCase(target.getName(), source))
                     .findFirst()
-                    .ifPresent(tc -> {
-                        Map<String, String> mapping = new LinkedHashMap<>();
-                        mapping.put("sourceColumn", source);
-                        mapping.put("targetColumn", (String) tc.get("name"));
-                        suggested.add(mapping);
-                    });
+                    .map(target -> ImportColumnMapping.builder()
+                            .sourceColumn(source)
+                            .targetColumn(target.getName())
+                            .build())
+                    .ifPresent(suggested::add);
         }
 
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("sourceColumns", sourceColumns);
-        result.put("targetColumns", targetColumns);
-        result.put("suggestedMapping", suggested);
-        result.put("previewLimit", PREVIEW_ROW_LIMIT);
-        result.put("previewRows", rows.size() - 1);
-        return result;
+        return ImportPreview.builder()
+                .sourceColumns(sourceNames)
+                .previewData(previewData)
+                .targetColumns(targetColumns)
+                .suggestedMapping(suggested)
+                .previewLimit(PREVIEW_ROW_LIMIT)
+                .build();
     }
 
-    private static List<Map<String, Object>> targetColumns(Long dataSourceId, String databaseName, String tableName) {
+    private static List<ImportPreview.TargetColumn> targetColumns(Long dataSourceId, String databaseName,
+                                                                   String schemaName, String tableName) {
         TableMetadataRequest trustedRequest = TrustedMetadataRequestResolver.table(dataSourceId, databaseName,
-                null, tableName);
+                schemaName, tableName);
         Connection connection = Chat2DBContext.getConnection();
         return Chat2DBContext.getDbMetaData().columns(connection,
                         trustedRequest).stream()
-                .<Map<String, Object>>map(column -> {
-                    Map<String, Object> map = new LinkedHashMap<>();
-                    map.put("name", column.getName());
-                    map.put("dataType", column.getColumnType());
-                    map.put("nullable", column.getNullable() != null && column.getNullable() == 1);
-                    map.put("autoIncrement", Boolean.TRUE.equals(column.getAutoIncrement()));
-                    map.put("defaultValue", column.getDefaultValue());
-                    return map;
-                })
-                .collect(java.util.stream.Collectors.toList());
+                .map(column -> ImportPreview.TargetColumn.builder()
+                        .name(column.getName())
+                        .dataType(column.getColumnType())
+                        .nullable(column.getNullable() != null && column.getNullable() == 1)
+                        .autoIncrement(Boolean.TRUE.equals(column.getAutoIncrement()))
+                        .defaultValue(column.getDefaultValue())
+                        .comment(column.getComment())
+                        .build())
+                .toList();
     }
 
     /**

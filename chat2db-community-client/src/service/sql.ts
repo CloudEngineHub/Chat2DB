@@ -436,19 +436,20 @@ export interface ICopyTableParams extends ITableParams {
 const copyTable = createRequest<ICopyTableParams, void>('/api/rdb/table/copy', { method: 'post' });
 
 
-/** Import preview and column mapping (MYSQL-IMPORT-001). */
+/** Database-independent import preview and column mapping. */
 export interface IImportPreview {
-  sourceColumns: { name: string; sampleValues: string[] }[];
+  sourceColumns: string[];
+  previewData: string[][];
   targetColumns: {
     name: string;
     dataType: string;
     nullable: boolean;
     autoIncrement: boolean;
     defaultValue: string | null;
+    comment: string | null;
   }[];
   suggestedMapping: { sourceColumn: string; targetColumn: string }[];
   previewLimit: number;
-  previewRows: number;
 }
 
 export interface IImportTaskSubmitResult {

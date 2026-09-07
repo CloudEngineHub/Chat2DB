@@ -177,6 +177,7 @@ export default memo<IProps>((_props) => {
           file: importFile.file,
         }
       : null;
+  const showImportPreview = taskId == null && importPreviewContext != null;
 
   return (
     <Modal
@@ -190,8 +191,10 @@ export default memo<IProps>((_props) => {
       }
       headerIconCode={importExportDataBoundInfo?.type === ImportExportType.IMPORT ? 'icon-upload' : 'icon-download'}
       headerBorder
+      width={showImportPreview ? 960 : undefined}
+      centered={showImportPreview}
       destroyOnClose
-      footer={taskId ? logRenderFooter() : importPreviewContext ? null : renderFooter()}
+      footer={taskId ? logRenderFooter() : showImportPreview ? null : renderFooter()}
       maskClosable={false}
       onCancel={() => {
         setImportExportDataBoundInfo(null);

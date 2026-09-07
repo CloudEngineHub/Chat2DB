@@ -12,10 +12,10 @@ import java.sql.Connection;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 import ai.chat2db.community.domain.api.config.DBConfig;
 import ai.chat2db.community.domain.api.config.DriverConfig;
+import ai.chat2db.community.domain.api.model.db.ImportPreview;
 import ai.chat2db.community.domain.api.model.metadata.TableColumn;
 import ai.chat2db.community.domain.api.model.metadata.Table;
 import ai.chat2db.community.tools.exception.BusinessException;
@@ -63,23 +63,38 @@ class DbImportPreviewServiceImplTest {
     }
 
     @Test
-    void previewCanonicalizesMysqlQualifiedTableWithoutLosingTargetColumns(@TempDir Path directory)
+    void previewCanonicalizesQualifiedTableWithoutLosingTargetColumns(@TempDir Path directory)
             throws Exception {
-        Map<String, Object> preview = new DbImportPreviewServiceImpl()
-                .preview(DATA_SOURCE_ID, DATABASE, "`app`.`orders`", csv(directory));
+        ImportPreview preview = new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, DATABASE, null, "`app`.`orders`", csv(directory));
 
         assertEquals(1, metaData.requests.size());
         TableMetadataRequest request = metaData.requests.get(0);
         assertEquals(DATABASE, request.getDatabaseName());
         assertEquals(null, request.getSchemaName());
         assertEquals("orders", request.getTableName());
-        assertEquals(1, ((List<?>) preview.get("targetColumns")).size());
+        assertEquals(1, preview.getTargetColumns().size());
+        assertEquals("Contact name", preview.getTargetColumns().get(0).getComment());
+    }
+
+    @Test
+    void previewUsesSchemaForDatabasesThatSupportSchemas(@TempDir Path directory) throws Exception {
+        Chat2DBContext.getDBConfig().setSupportSchema(true);
+        Chat2DBContext.getConnectInfo().setSchemaName("public");
+
+        new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, DATABASE, "public", "orders", csv(directory));
+
+        TableMetadataRequest request = metaData.requests.get(0);
+        assertEquals(DATABASE, request.getDatabaseName());
+        assertEquals("public", request.getSchemaName());
+        assertEquals("orders", request.getTableName());
     }
 
     @Test
     void previewRejectsDatabaseMismatchBeforeMetadataLookup(@TempDir Path directory) throws Exception {
         assertThrows(BusinessException.class, () -> new DbImportPreviewServiceImpl()
-                .preview(DATA_SOURCE_ID, "other", "orders", csv(directory)));
+                .preview(DATA_SOURCE_ID, "other", null, "orders", csv(directory)));
 
         assertEquals(0, metaData.tablesRequests);
         assertEquals(0, metaData.requests.size());
@@ -88,7 +103,7 @@ class DbImportPreviewServiceImplTest {
     @Test
     void previewRejectsWildcardTableBeforeMetadataLookup(@TempDir Path directory) throws Exception {
         assertThrows(BusinessException.class, () -> new DbImportPreviewServiceImpl()
-                .preview(DATA_SOURCE_ID, DATABASE, "orders%", csv(directory)));
+                .preview(DATA_SOURCE_ID, DATABASE, null, "orders%", csv(directory)));
 
         assertEquals(0, metaData.tablesRequests);
         assertEquals(0, metaData.requests.size());
@@ -103,13 +118,14 @@ class DbImportPreviewServiceImplTest {
         Path path = directory.resolve("large-orders.csv");
         Files.writeString(path, content, StandardCharsets.UTF_8);
 
-        Map<String, Object> preview = new DbImportPreviewServiceImpl()
-                .preview(DATA_SOURCE_ID, DATABASE, "orders", path.toFile());
+        ImportPreview preview = new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, DATABASE, null, "orders", path.toFile());
 
-        assertEquals(50, preview.get("previewRows"));
-        List<?> sourceColumns = (List<?>) preview.get("sourceColumns");
-        Map<?, ?> sourceColumn = (Map<?, ?>) sourceColumns.get(0);
-        assertEquals(50, ((List<?>) sourceColumn.get("sampleValues")).size());
+        assertEquals(10, preview.getPreviewLimit());
+        assertEquals(List.of("Name"), preview.getSourceColumns());
+        assertEquals(10, preview.getPreviewData().size());
+        assertEquals(List.of("row-1"), preview.getPreviewData().get(0));
+        assertEquals(List.of("row-10"), preview.getPreviewData().get(9));
     }
 
     private File csv(Path directory) throws Exception {
@@ -171,7 +187,7 @@ class DbImportPreviewServiceImplTest {
         public List<TableColumn> columns(Connection connection, TableMetadataRequest request) {
             requests.add(request);
             return List.of(TableColumn.builder().name("name").columnType("VARCHAR")
-                    .dataType(Types.VARCHAR).build());
+                    .dataType(Types.VARCHAR).comment("Contact name").build());
         }
     }
 }

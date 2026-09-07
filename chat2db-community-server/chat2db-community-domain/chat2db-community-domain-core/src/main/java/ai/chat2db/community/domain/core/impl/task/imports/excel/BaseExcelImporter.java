@@ -5,6 +5,7 @@ import ai.chat2db.community.domain.core.impl.task.imports.ImportSqlExecutor;
 import ai.chat2db.community.domain.api.model.task.TaskConstants;
 import ai.chat2db.community.domain.api.model.task.TaskCancelledException;
 import ai.chat2db.community.domain.api.model.task.ImportTaskSpec;
+import ai.chat2db.community.domain.api.model.task.ImportColumnMapping;
 import ai.chat2db.community.domain.api.model.task.TaskErrorCode;
 import ai.chat2db.community.domain.api.model.task.TaskEventCode;
 import ai.chat2db.community.domain.api.model.task.TaskExecutionException;
@@ -260,9 +261,9 @@ public abstract class BaseExcelImporter extends BaseImporter {
             if (spec.getColumnMappings() == null) {
                 return mapped;
             }
-            for (Map<String, String> mapping : spec.getColumnMappings()) {
-                String source = mapping.get("sourceColumn");
-                String target = mapping.get("targetColumn");
+            for (ImportColumnMapping mapping : spec.getColumnMappings()) {
+                String source = mapping.getSourceColumn();
+                String target = mapping.getTargetColumn();
                 Integer sourceIndex = headMap.get(source == null ? null : source.toUpperCase(Locale.ROOT));
                 if (sourceIndex != null && StringUtils.isNotBlank(target)) {
                     mapped.put(target.toUpperCase(Locale.ROOT), sourceIndex);

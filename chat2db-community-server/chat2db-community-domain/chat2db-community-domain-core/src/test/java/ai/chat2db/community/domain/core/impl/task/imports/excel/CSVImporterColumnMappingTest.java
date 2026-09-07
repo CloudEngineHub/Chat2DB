@@ -4,6 +4,7 @@ import ai.chat2db.community.domain.api.config.DBConfig;
 import ai.chat2db.community.domain.api.config.DriverConfig;
 import ai.chat2db.community.domain.api.model.metadata.TableColumn;
 import ai.chat2db.community.domain.api.model.task.ArtifactDraft;
+import ai.chat2db.community.domain.api.model.task.ImportColumnMapping;
 import ai.chat2db.community.domain.api.model.task.ImportTaskSpec;
 import ai.chat2db.community.domain.api.model.task.TaskExecutionException;
 import ai.chat2db.community.domain.api.model.task.TaskTargetSnapshot;
@@ -116,7 +117,8 @@ class CSVImporterColumnMappingTest {
         ImportTaskSpec spec = ImportTaskSpec.builder()
                 .sourceFile(input.toString())
                 .target(TaskTargetSnapshot.builder().tableName("orders").build())
-                .columnMappings(List.of(Map.of("sourceColumn", "Name", "targetColumn", "name")))
+                .columnMappings(List.of(ImportColumnMapping.builder()
+                        .sourceColumn("Name").targetColumn("name").build()))
                 .unmappedTarget("DEFAULT")
                 .build();
         RecordingTaskExecutionContext taskContext = new RecordingTaskExecutionContext();
