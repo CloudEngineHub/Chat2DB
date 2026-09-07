@@ -166,19 +166,17 @@ public class MainJFrame extends JFrame {
         }
     }
     public void handleLaunchRequest(String argument) {
-        SwingUtilities.invokeLater(() -> {
-            if (StringUtils.isNotEmpty(argument)) {
-                try {
-                    processUri(UriUtil.processInput(argument));
-                } catch (RuntimeException exception) {
-                    log.error("Cannot handle desktop launch argument", exception);
-                }
+        if (StringUtils.isNotEmpty(argument)) {
+            try {
+                processUri(UriUtil.processInput(argument));
+            } catch (RuntimeException exception) {
+                log.error("Cannot handle desktop launch argument", exception);
             }
-            setVisible(true);
-            setExtendedState(getExtendedState() & ~Frame.ICONIFIED);
-            toFront();
-            requestFocus();
-        });
+        }
+        setVisible(true);
+        setExtendedState(getExtendedState() & ~Frame.ICONIFIED);
+        toFront();
+        requestFocus();
     }
     public void start(String[] args) {
         UrlProtocolRegistrarUtil.register();

@@ -154,7 +154,6 @@ public class OSOperateUtil {
 
     public static void closeWindows(Frame frameToClose) {
         SystemSettingsUtil.saveWindowsInfo();
-        SingleInstanceUtil.beginShutdown();
         frameToClose.dispose();
         CefApp cefApp = JcefContext.getInstance().getCefApp_();
         if (cefApp != null && CefApp.getState() != CefApp.CefAppState.TERMINATED) {

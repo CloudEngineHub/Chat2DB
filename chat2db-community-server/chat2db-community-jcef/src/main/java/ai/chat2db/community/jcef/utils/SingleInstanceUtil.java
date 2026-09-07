@@ -6,9 +6,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.cef.OS;
 
 import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
@@ -32,7 +34,10 @@ import java.util.Objects;
 import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
@@ -45,6 +50,17 @@ public final class SingleInstanceUtil {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Duration EXIT_TIMEOUT = Duration.ofMinutes(2);
     private static final int MAX_REQUEST_BYTES = 1024 * 1024;
+    private static final Object REQUEST_LOCK = new Object();
+    private static final Queue<LaunchRequest> PENDING = new ConcurrentLinkedQueue<>();
+    private static final ScheduledThreadPoolExecutor SOCKET_DEADLINES = new ScheduledThreadPoolExecutor(1, action -> {
+        Thread thread = new Thread(action, "chat2db-instance-deadlines");
+        thread.setDaemon(true);
+        return thread;
+    });
+    static {
+        SOCKET_DEADLINES.setRemoveOnCancelPolicy(true);
+    }
+    private static long requestVersion;
     private static FileLock fileLock;
     private static volatile Consumer<String> argumentConsumer;
     private static volatile ServerSocket ipcServer;
@@ -76,7 +92,12 @@ public final class SingleInstanceUtil {
                 && !"cli".equalsIgnoreCase(runtime) && !cli && !mac;
     }
 
-    static synchronized boolean registerInstance(Path directory, String[] args) throws IOException {
+    static boolean registerInstance(Path directory, String[] args) throws IOException {
+        return registerInstance(directory, args, EXIT_TIMEOUT);
+    }
+
+    static synchronized boolean registerInstance(Path directory, String[] args, Duration timeout) throws IOException {
+        long deadline = System.nanoTime() + timeout.toNanos();
         if (fileLock != null && fileLock.isValid()) {
             return true;
         }
@@ -84,14 +105,14 @@ public final class SingleInstanceUtil {
         String argument = launchArgument(args);
         // Publish the receiver before another new launcher can inspect its endpoint.
         try (FileChannel launchChannel = FileChannel.open(directory.resolve("app.launch.lock"), CREATE, WRITE);
-             FileLock launchLock = launchChannel.lock()) {
+             FileLock launchLock = acquireLaunchLock(launchChannel, deadline)) {
             FileChannel channel = FileChannel.open(directory.resolve("app.lock"), CREATE, WRITE);
             boolean primary = false;
             try {
-                long deadline = System.nanoTime() + EXIT_TIMEOUT.toNanos();
                 boolean checkedLegacy = false;
                 boolean waitingForExit = false;
                 while (true) {
+                    remainingMillis(deadline);
                     FileLock lock;
                     try {
                         lock = channel.tryLock();
@@ -114,22 +135,14 @@ public final class SingleInstanceUtil {
                         publish(directory.resolve("app.ipc"), argument.getBytes(StandardCharsets.UTF_8));
                         return false;
                     }
-                    if (forward(endpoint, argument)) {
+                    if (forward(endpoint, argument, deadline)) {
                         return false;
                     }
                     if (!waitingForExit) {
                         log.info("Waiting for the previous desktop instance to exit.");
                         waitingForExit = true;
                     }
-                    if (System.nanoTime() >= deadline) {
-                        throw new IOException("The running application did not finish exiting");
-                    }
-                    try {
-                        Thread.sleep(50);
-                    } catch (InterruptedException exception) {
-                        Thread.currentThread().interrupt();
-                        throw new IOException("Interrupted while waiting for the running application", exception);
-                    }
+                    pause(deadline);
                 }
             } finally {
                 if (!primary) {
@@ -139,11 +152,40 @@ public final class SingleInstanceUtil {
         }
     }
 
+    private static FileLock acquireLaunchLock(FileChannel channel, long deadline) throws IOException {
+        while (true) {
+            remainingMillis(deadline);
+            FileLock lock = channel.tryLock();
+            if (lock != null) {
+                return lock;
+            }
+            pause(deadline);
+        }
+    }
+
+    private static int remainingMillis(long deadline) throws IOException {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new IOException("Interrupted while waiting for the running application");
+        }
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
+            throw new SocketTimeoutException("Timed out waiting for desktop instance startup or shutdown");
+        }
+        return (int) Math.min(Integer.MAX_VALUE, Math.max(1, TimeUnit.NANOSECONDS.toMillis(remaining)));
+    }
+
+    private static void pause(long deadline) throws IOException {
+        try {
+            Thread.sleep(Math.min(50, remainingMillis(deadline)));
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while waiting for the running application", exception);
+        }
+    }
+
     private static void startReceiver(Path directory, String initialArgument) throws IOException {
         Path legacyIpc = directory.resolve("app.ipc");
         IpcVersion lastWrite = ipcVersion(legacyIpc);
-        Queue<String> pending = new ConcurrentLinkedQueue<>();
-        pending.add(initialArgument);
         ServerSocket server = new ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"));
         WatchService watcher;
         try {
@@ -159,9 +201,10 @@ public final class SingleInstanceUtil {
                     server.getLocalPort(), UUID.randomUUID().toString());
             publish(directory.resolve("app.ipc.endpoint"), MAPPER.writeValueAsBytes(endpoint));
             ipcServer = server;
-            Runtime.getRuntime().addShutdownHook(new Thread(SingleInstanceUtil::beginShutdown, "chat2db-instance-exit"));
-            startDaemon("chat2db-instance-receiver", () -> receive(server, endpoint.token(), pending));
-            startDaemon("chat2db-instance-requests", () -> dispatch(legacyIpc, watcher, lastWrite, pending));
+            accept(new LaunchRequest(initialArgument, false));
+            Runtime.getRuntime().addShutdownHook(new Thread(SingleInstanceUtil::closeReceiver, "chat2db-instance-exit"));
+            startDaemon("chat2db-instance-receiver", () -> receive(server, endpoint.token()));
+            startDaemon("chat2db-instance-requests", () -> dispatch(legacyIpc, watcher, lastWrite));
             log.info("Successfully acquired the instance lock.");
         } catch (IOException | RuntimeException exception) {
             server.close();
@@ -171,11 +214,59 @@ public final class SingleInstanceUtil {
     }
 
     public static void onReady(Consumer<String> consumer) {
-        argumentConsumer = consumer;
+        // The consumer runs on the EDT and must finish its window handoff before returning.
+        synchronized (REQUEST_LOCK) {
+            argumentConsumer = Objects.requireNonNull(consumer);
+        }
     }
 
-    public static void beginShutdown() {
-        shuttingDown = true;
+    /** Capture before exit confirmation; return true only after exit has been started or scheduled. */
+    public static BooleanSupplier guardExit(BooleanSupplier action) {
+        final long version;
+        synchronized (REQUEST_LOCK) {
+            version = requestVersion;
+        }
+        return () -> {
+            if (ipcServer == null) {
+                return action.getAsBoolean();
+            }
+            synchronized (REQUEST_LOCK) {
+                // An initial launch can be cancelled before readiness; forwarded requests were ACKed.
+                boolean pendingDelivery = PENDING.stream().anyMatch(request -> request.forwarded() || argumentConsumer != null);
+                if (shuttingDown || version != requestVersion || pendingDelivery) {
+                    return false;
+                }
+                shuttingDown = true;
+            }
+            boolean exiting = false;
+            try {
+                exiting = action.getAsBoolean();
+                return exiting;
+            } finally {
+                if (!exiting) {
+                    synchronized (REQUEST_LOCK) {
+                        shuttingDown = false;
+                    }
+                }
+            }
+        };
+    }
+
+    private static boolean accept(LaunchRequest request) {
+        synchronized (REQUEST_LOCK) {
+            if (shuttingDown) {
+                return false;
+            }
+            PENDING.add(request);
+            requestVersion++;
+            return true;
+        }
+    }
+
+    private static void closeReceiver() {
+        synchronized (REQUEST_LOCK) {
+            shuttingDown = true;
+        }
         ServerSocket server = ipcServer;
         if (server != null) {
             try {
@@ -197,49 +288,65 @@ public final class SingleInstanceUtil {
                 .map(process -> endpoint).orElse(null);
     }
 
-    private static boolean forward(Endpoint endpoint, String argument) throws IOException {
+    private static boolean forward(Endpoint endpoint, String argument, long deadline) throws IOException {
         try (Socket socket = new Socket(Proxy.NO_PROXY)) {
             try {
-                socket.connect(new InetSocketAddress("127.0.0.1", endpoint.port()), 500);
+                socket.connect(new InetSocketAddress("127.0.0.1", endpoint.port()), Math.min(500, remainingMillis(deadline)));
             } catch (IOException exception) {
                 return false;
             }
-            socket.setSoTimeout(5000);
-            DataOutputStream output = new DataOutputStream(socket.getOutputStream());
-            output.writeUTF(endpoint.token());
-            byte[] request = argument.getBytes(StandardCharsets.UTF_8);
-            if (request.length > MAX_REQUEST_BYTES) {
-                throw new IOException("Desktop launch request is too large");
+            ScheduledFuture<?> expiry = closeAfter(socket, Math.min(5000, remainingMillis(deadline)));
+            try {
+                DataOutputStream output = new DataOutputStream(socket.getOutputStream());
+                output.writeUTF(endpoint.token());
+                byte[] request = argument.getBytes(StandardCharsets.UTF_8);
+                if (request.length > MAX_REQUEST_BYTES) {
+                    throw new IOException("Desktop launch request is too large");
+                }
+                output.writeInt(request.length);
+                output.write(request);
+                output.flush();
+                // Never retry an ambiguous write: only an explicit refusal is safe to retry.
+                return new DataInputStream(socket.getInputStream()).readBoolean();
+            } finally {
+                expiry.cancel(false);
             }
-            output.writeInt(request.length);
-            output.write(request);
-            output.flush();
-            // Never retry an ambiguous write: only an explicit refusal is safe to retry.
-            return new DataInputStream(socket.getInputStream()).readBoolean();
         }
     }
 
-    private static void receive(ServerSocket server, String token, Queue<String> pending) {
+    private static ScheduledFuture<?> closeAfter(Socket socket, int milliseconds) {
+        return SOCKET_DEADLINES.schedule(() -> {
+            try {
+                socket.close();
+            } catch (IOException exception) {
+                log.debug("Cannot close expired desktop IPC connection", exception);
+            }
+        }, milliseconds, TimeUnit.MILLISECONDS);
+    }
+
+    private static void receive(ServerSocket server, String token) {
         while (!server.isClosed()) {
             try (Socket socket = server.accept()) {
-                socket.setSoTimeout(2000);
-                DataInputStream input = new DataInputStream(socket.getInputStream());
-                if (!token.equals(input.readUTF())) {
-                    continue;
+                // Bound the entire frame, including clients that keep sending partial data.
+                ScheduledFuture<?> expiry = closeAfter(socket, 2000);
+                try {
+                    DataInputStream input = new DataInputStream(socket.getInputStream());
+                    if (!token.equals(input.readUTF())) {
+                        continue;
+                    }
+                    int length = input.readInt();
+                    if (length < 0 || length > MAX_REQUEST_BYTES) {
+                        continue;
+                    }
+                    byte[] request = new byte[length];
+                    input.readFully(request);
+                    boolean accepted = accept(new LaunchRequest(new String(request, StandardCharsets.UTF_8), true));
+                    DataOutputStream output = new DataOutputStream(socket.getOutputStream());
+                    output.writeBoolean(accepted);
+                    output.flush();
+                } finally {
+                    expiry.cancel(false);
                 }
-                int length = input.readInt();
-                if (length < 0 || length > MAX_REQUEST_BYTES) {
-                    continue;
-                }
-                byte[] request = new byte[length];
-                input.readFully(request);
-                boolean accepted = !shuttingDown;
-                if (accepted) {
-                    pending.add(new String(request, StandardCharsets.UTF_8));
-                }
-                DataOutputStream output = new DataOutputStream(socket.getOutputStream());
-                output.writeBoolean(accepted);
-                output.flush();
             } catch (SocketTimeoutException ignored) {
                 // An incomplete client must not prevent subsequent launches from connecting.
             } catch (IOException exception) {
@@ -278,24 +385,24 @@ public final class SingleInstanceUtil {
         }
     }
 
-    private static void dispatch(Path ipc, WatchService watcher, IpcVersion lastWrite, Queue<String> pending) {
+    private static void dispatch(Path ipc, WatchService watcher, IpcVersion lastWrite) {
         boolean failed = false;
         boolean deliveryFailed = false;
         boolean ipcChanged = false;
         String lastArgument = null;
         try (watcher) {
-            while (!shuttingDown) {
+            while (!ipcServer.isClosed()) {
                 try {
                     IpcVersion modified = ipcVersion(ipc);
                     if (modified != null && (ipcChanged || !modified.equals(lastWrite))) {
                         String argument = Files.readString(ipc);
                         if (modified.equals(ipcVersion(ipc))) {
-                            if (!modified.equals(lastWrite) || !Objects.equals(argument, lastArgument)) {
-                                pending.add(argument);
+                            boolean alreadyRead = modified.equals(lastWrite) && Objects.equals(argument, lastArgument);
+                            if (alreadyRead || accept(new LaunchRequest(argument, true))) {
+                                lastWrite = modified;
+                                lastArgument = argument;
+                                ipcChanged = false;
                             }
-                            lastWrite = modified;
-                            lastArgument = argument;
-                            ipcChanged = false;
                         }
                     }
                     failed = false;
@@ -307,12 +414,14 @@ public final class SingleInstanceUtil {
                 }
                 try {
                     Consumer<String> handler = argumentConsumer;
-                    while (handler != null && !shuttingDown && !pending.isEmpty()) {
-                        handler.accept(pending.element());
-                        pending.remove();
+                    while (handler != null && !shuttingDown && !PENDING.isEmpty()) {
+                        String argument = PENDING.element().argument();
+                        // Keep ownership until the window callback has actually finished on the EDT.
+                        SwingUtilities.invokeAndWait(() -> handler.accept(argument));
+                        PENDING.remove();
                     }
                     deliveryFailed = false;
-                } catch (RuntimeException exception) {
+                } catch (InvocationTargetException | RuntimeException exception) {
                     if (!deliveryFailed) {
                         log.warn("Cannot dispatch desktop launch request; waiting for recovery", exception);
                     }
@@ -338,6 +447,9 @@ public final class SingleInstanceUtil {
     }
 
     private record Endpoint(long pid, String startedAt, int port, String token) {
+    }
+
+    private record LaunchRequest(String argument, boolean forwarded) {
     }
 
     private record IpcVersion(Object fileKey, FileTime modifiedTime) {

@@ -1,6 +1,9 @@
 package ai.chat2db.community.jcef.utils;
 
+import ai.chat2db.community.jcef.context.JcefContext;
+import ai.chat2db.community.jcef.frame.MainJFrame;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.cef.browser.CefBrowser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -13,6 +16,9 @@ import java.io.DataOutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.URI;
+import java.lang.reflect.Field;
+import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
@@ -28,6 +34,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
+import javax.swing.SwingUtilities;
 
 import static java.nio.file.StandardOpenOption.APPEND;
 import static java.nio.file.StandardOpenOption.CREATE;
@@ -297,6 +304,261 @@ class SingleInstanceUtilTest {
     }
 
     @Test
+    void acknowledgedRequestsPreventExitUntilWindowHandoffCompletes() throws Exception {
+        Path state = temporary.resolve("state");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        String file = temporary.resolve("queued.sql").toString();
+        start(state, -1, file).awaitSecondary();
+        assertExitResult(primary, "TRY_EXIT", "false");
+        assertFalse(Files.exists(primary.directory.resolve("exit-action")));
+        primary.command("READY_FRAME");
+        await(() -> lineCount(primary.received()) == 2);
+        assertEquals(List.of("", file), readRequests(primary.received()));
+        assertExitResult(primary, "TRY_EXIT", "true");
+        assertTrue(Files.exists(primary.directory.resolve("exit-action")));
+    }
+
+    @Test
+    void initialStartupCanBeCancelledBeforeReadinessWithoutReopeningTheWindow() throws Exception {
+        for (String initial : List.of("", temporary.resolve("initial.sql").toString())) {
+            Child primary = initial.isEmpty() ? start(temporary.resolve("empty-state"), -1)
+                    : start(temporary.resolve("file-state"), -1, initial);
+            primary.awaitPrimary();
+            assertExitResult(primary, "TRY_EXIT", "true");
+            primary.command("READY_FRAME");
+            primary.command("EDT_BARRIER");
+            await(() -> Files.exists(primary.directory.resolve("edt-barrier")));
+            Thread.sleep(300);
+            assertFalse(Files.exists(primary.received()), "Cancelled startup reopened its window");
+        }
+    }
+
+    @Test
+    void exitOnEdtCannotDiscardAnAcknowledgedEdtPendingRequestOrDeadlock() throws Exception {
+        Path state = temporary.resolve("state");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY_FRAME");
+        await(() -> lineCount(primary.received()) == 1);
+        primary.command("BLOCK_EDT");
+        await(() -> Files.exists(primary.directory.resolve("edt-blocked")));
+        String file = temporary.resolve("on-edt.sql").toString();
+        start(state, -1, file).awaitSecondary();
+        assertEquals(1, lineCount(primary.received()));
+        assertExitResult(primary, "RESUME_EDT_AND_EXIT", "false");
+        await(() -> lineCount(primary.received()) == 2);
+        assertEquals(file, readRequests(primary.received()).get(1));
+        assertExitResult(primary, "TRY_EXIT", "true");
+    }
+
+    @Test
+    void realWindowHandlerFailuresRemainPendingAndAreRetriedOnEdt() throws Exception {
+        Path state = temporary.resolve("state");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY_FRAME");
+        await(() -> lineCount(primary.received()) == 1);
+        primary.command("FAIL_FRAME");
+        await(() -> Files.exists(primary.directory.resolve("frame-failing")));
+        String file = temporary.resolve("retry.sql").toString();
+        start(state, -1, file).awaitSecondary();
+        await(() -> primary.output().contains("Cannot dispatch desktop launch request"));
+        assertExitResult(primary, "TRY_EXIT", "false");
+        primary.command("RECOVER_FRAME");
+        await(() -> lineCount(primary.received()) == 2);
+        assertEquals(List.of("", file), readRequests(primary.received()));
+    }
+
+    @Test
+    void unsupportedAndMalformedProtocolArgumentsDoNotBlockLaterLaunchesOrExit() throws Exception {
+        Path state = temporary.resolve("state");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY_FRAME");
+        await(() -> lineCount(primary.received()) == 1);
+        for (String argument : List.of("chat2db-community://restart", "chat2db-community://invalid space")) {
+            start(state, -1, argument).awaitSecondary();
+        }
+        String file = temporary.resolve("after-invalid.sql").toString();
+        start(state, -1, file).awaitSecondary();
+        await(() -> lineCount(primary.received()) == 4);
+        assertEquals(List.of("", "", "", file), readRequests(primary.received()));
+        assertTrue(primary.output().contains("Cannot handle desktop launch argument"));
+        assertExitResult(primary, "TRY_EXIT", "true");
+    }
+
+    @Test
+    void aNewLaunchInvalidatesPendingCloseRestartAndUpdateConfirmations() throws Exception {
+        Path state = temporary.resolve("state");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY");
+        await(() -> lineCount(primary.received()) == 1);
+        int expected = 1;
+        for (String action : List.of("CLOSE", "RESTART", "INSTALL_UPDATE")) {
+            primary.command("REQUEST_" + action);
+            await(() -> Files.exists(primary.directory.resolve("exit-requested")));
+            Files.delete(primary.directory.resolve("exit-requested"));
+            start(state, -1).awaitSecondary();
+            int count = ++expected;
+            await(() -> lineCount(primary.received()) == count);
+            assertExitResult(primary, "CONFIRM_EXIT", "false");
+            assertFalse(Files.exists(primary.directory.resolve("exit-action")));
+        }
+    }
+
+    @Test
+    void cancelledFailedAndRejectedExitsLeaveReceiptAndDispatchAvailable() throws Exception {
+        Path state = temporary.resolve("state");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY");
+        await(() -> lineCount(primary.received()) == 1);
+        primary.command("REQUEST_CLOSE");
+        await(() -> Files.exists(primary.directory.resolve("exit-requested")));
+        assertExitResult(primary, "CANCEL_EXIT", "true");
+        int expected = 1;
+        for (String command : List.of("REJECT_EXIT", "FAIL_EXIT", "REJECT_EXIT")) {
+            assertExitResult(primary, command, "false");
+            start(state, -1).awaitSecondary();
+            int count = ++expected;
+            await(() -> lineCount(primary.received()) == count);
+        }
+        assertExitResult(primary, "TRY_EXIT", "true");
+        Child next = start(state, -1);
+        await(() -> next.output().contains("Waiting for the previous desktop instance to exit"));
+        assertFalse(Files.exists(next.status()));
+        primary.command("STOP");
+        assertTrue(primary.process.waitFor(10, TimeUnit.SECONDS));
+        next.awaitPrimary();
+    }
+
+    @Test
+    void launchLockAcquisitionUsesTheOperationDeadline() throws Exception {
+        Path state = Files.createDirectories(temporary.resolve("state"));
+        try (FileChannel channel = FileChannel.open(state.resolve("app.launch.lock"), CREATE, WRITE);
+             FileLock ignored = channel.lock()) {
+            Child sender = start(ShortDeadlineProcess.class, state, -1, null);
+            assertTrue(sender.process.waitFor(5, TimeUnit.SECONDS), sender::output);
+            assertNotEquals(0, sender.process.exitValue());
+            assertTrue(sender.output().contains("Timed out waiting for desktop instance"), sender::output);
+            assertFalse(Files.exists(sender.directory.resolve("initialized")));
+        }
+        start(state, -1).awaitPrimary();
+    }
+
+    @Test
+    void legacyRequestDuringAFailedExitIsDeliveredAfterRecovery() throws Exception {
+        Path state = temporary.resolve("state");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY");
+        await(() -> lineCount(primary.received()) == 1);
+        primary.command("HOLD_FAILED_EXIT");
+        await(() -> Files.exists(primary.directory.resolve("exit-running")));
+        String file = temporary.resolve("legacy-during-exit.sql").toString();
+        publish(state.resolve("app.ipc"), file);
+        Thread.sleep(500);
+        assertEquals(1, lineCount(primary.received()));
+        Files.createFile(primary.directory.resolve("resume-exit"));
+        await(() -> Files.exists(primary.directory.resolve("exit-result")));
+        assertEquals("false", Files.readString(primary.directory.resolve("exit-result")));
+        await(() -> lineCount(primary.received()) == 2);
+        assertEquals(file, readRequests(primary.received()).get(1));
+        start(state, -1).awaitSecondary();
+        await(() -> lineCount(primary.received()) == 3);
+    }
+
+    @Test
+    void readinessArrivingDuringAFailedExitIsRetainedForRecovery() throws Exception {
+        Path state = temporary.resolve("state");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("HOLD_FAILED_EXIT");
+        await(() -> Files.exists(primary.directory.resolve("exit-running")));
+        primary.command("READY_FRAME");
+        primary.command("EDT_BARRIER");
+        await(() -> Files.exists(primary.directory.resolve("edt-barrier")));
+        assertFalse(Files.exists(primary.received()));
+        Files.createFile(primary.directory.resolve("resume-exit"));
+        await(() -> Files.exists(primary.directory.resolve("exit-result")));
+        assertEquals("false", Files.readString(primary.directory.resolve("exit-result")));
+        await(() -> lineCount(primary.received()) == 1);
+        start(state, -1).awaitSecondary();
+        await(() -> lineCount(primary.received()) == 2);
+    }
+
+    @Test
+    void launchLockWaitHonorsThreadInterruption() throws Exception {
+        Path state = Files.createDirectories(temporary.resolve("state"));
+        try (FileChannel channel = FileChannel.open(state.resolve("app.launch.lock"), CREATE, WRITE);
+             FileLock ignored = channel.lock()) {
+            Child sender = start(ShortDeadlineProcess.class, state, -1, null, "interrupt");
+            assertTrue(sender.process.waitFor(5, TimeUnit.SECONDS), sender::output);
+            assertNotEquals(0, sender.process.exitValue());
+            assertTrue(sender.output().contains("Interrupted while waiting"), sender::output);
+        }
+    }
+
+    @Test
+    void slowPartialAuthenticationAndPayloadCannotStarveAnOverlappingLauncher() throws Exception {
+        Path state = temporary.resolve("state");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY");
+        await(() -> lineCount(primary.received()) == 1);
+        var endpoint = MAPPER.readTree(state.resolve("app.ipc.endpoint").toFile());
+        int expected = 1;
+        for (boolean authenticated : List.of(false, true)) {
+            try (Socket slow = new Socket("127.0.0.1", endpoint.get("port").asInt())) {
+                DataOutputStream output = new DataOutputStream(slow.getOutputStream());
+                if (authenticated) {
+                    output.writeUTF(endpoint.get("token").asText());
+                    output.writeInt(64);
+                } else {
+                    output.writeShort(64);
+                }
+                output.writeByte(1);
+                output.flush();
+                Thread drip = new Thread(() -> {
+                    try {
+                        for (int index = 0; index < 30; index++) {
+                            Thread.sleep(300);
+                            output.writeByte(1);
+                            output.flush();
+                        }
+                    } catch (IOException ignored) {
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+                drip.start();
+                try {
+                    Child healthy = start(state, -1);
+                    healthy.awaitSecondary();
+                    int count = ++expected;
+                    await(() -> lineCount(primary.received()) == count);
+                    slow.setSoTimeout(1000);
+                    assertEquals(-1, slow.getInputStream().read());
+                } finally {
+                    drip.interrupt();
+                    drip.join(2000);
+                    assertFalse(drip.isAlive());
+                }
+            }
+        }
+    }
+
+    private void assertExitResult(Child primary, String command, String expected) throws Exception {
+        Path result = primary.directory.resolve("exit-result");
+        Files.deleteIfExists(result);
+        primary.command(command);
+        await(() -> Files.exists(result));
+        assertEquals(expected, Files.readString(result), primary::output);
+    }
+
+    @Test
     void aFailedDeliveryIsRetriedWithoutStoppingOtherRequests() throws Exception {
         Path state = temporary.resolve("state");
         Child primary = start(state, -1);
@@ -426,6 +688,7 @@ class SingleInstanceUtilTest {
         String executable = System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java";
         List<String> command = new ArrayList<>(List.of(
                 Path.of(System.getProperty("java.home"), "bin", executable).toString(),
+                "-Duser.home=" + directory,
                 "-DsocksProxyHost=127.0.0.1", "-DsocksProxyPort=1", "-DsocksNonProxyHosts=",
                 "-cp", System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
                 mainClass.getName(), state.toString(), directory.toString(), String.valueOf(port)));
@@ -537,11 +800,65 @@ class SingleInstanceUtilTest {
             publish(directory.resolve("status"), "PRIMARY");
             AtomicReference<CountDownLatch> deliveryPause = new AtomicReference<>();
             AtomicBoolean failNextDelivery = new AtomicBoolean();
+            AtomicReference<CountDownLatch> edtPause = new AtomicReference<>();
+            LaunchFrame frame = LaunchFrame.create(directory);
             BufferedReader input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
             String command;
             while ((command = input.readLine()) != null) {
                 switch (command) {
+                    case "READY_FRAME" -> SingleInstanceUtil.onReady(frame::handleLaunchRequest);
+                    case "EDT_BARRIER" -> SwingUtilities.invokeAndWait(() -> {
+                        try { Files.createFile(directory.resolve("edt-barrier")); }
+                        catch (IOException exception) { throw new RuntimeException(exception); }
+                    });
+                    case "FAIL_FRAME" -> {
+                        frame.fail = true;
+                        Files.createFile(directory.resolve("frame-failing"));
+                    }
+                    case "RECOVER_FRAME" -> frame.fail = false;
+                    case "BLOCK_EDT" -> {
+                        CountDownLatch pause = new CountDownLatch(1);
+                        edtPause.set(pause);
+                        SwingUtilities.invokeLater(() -> {
+                            try {
+                                Files.createFile(directory.resolve("edt-blocked"));
+                                if (!pause.await(10, TimeUnit.SECONDS)) {
+                                    throw new IllegalStateException("EDT was not resumed");
+                                }
+                                attemptExit(directory, "TRY_EXIT");
+                            } catch (Exception exception) { throw new RuntimeException(exception); }
+                        });
+                    }
+                    case "RESUME_EDT_AND_EXIT" -> edtPause.get().countDown();
+                    case "TRY_EXIT", "FAIL_EXIT", "REJECT_EXIT" -> attemptExit(directory, command);
+                    case "HOLD_FAILED_EXIT" -> new Thread(() -> {
+                        try { attemptExit(directory, "HOLD_FAILED_EXIT"); }
+                        catch (Exception exception) { throw new RuntimeException(exception); }
+                    }).start();
+                    case "REQUEST_CLOSE", "REQUEST_RESTART", "REQUEST_INSTALL_UPDATE" -> {
+                        Field browser = JcefContext.class.getDeclaredField("browser_");
+                        browser.setAccessible(true);
+                        browser.set(JcefContext.getInstance(), Proxy.newProxyInstance(
+                                CefBrowser.class.getClassLoader(), new Class<?>[]{CefBrowser.class},
+                                (proxy, method, parameters) -> null));
+                        ApplicationExitCoordinator.markFrontendReady();
+                        if (!ApplicationExitCoordinator.request(command.substring(8), "test-exit", () -> {
+                            try { Files.createFile(directory.resolve("exit-action")); }
+                            catch (IOException exception) { throw new RuntimeException(exception); }
+                            return true;
+                        }, 30000) || !ApplicationExitCoordinator.acknowledge("test-exit")) {
+                            throw new IllegalStateException("Exit request was not accepted");
+                        }
+                        Files.createFile(directory.resolve("exit-requested"));
+                    }
+                    case "CONFIRM_EXIT" -> publish(directory.resolve("exit-result"),
+                            String.valueOf(ApplicationExitCoordinator.confirm("test-exit")));
+                    case "CANCEL_EXIT" -> publish(directory.resolve("exit-result"),
+                            String.valueOf(ApplicationExitCoordinator.cancel("test-exit")));
                     case "READY" -> SingleInstanceUtil.onReady(argument -> {
+                        if (!SwingUtilities.isEventDispatchThread()) {
+                            throw new IllegalStateException("Window handler must run on EDT");
+                        }
                         if (failNextDelivery.getAndSet(false)) {
                             throw new IllegalStateException("Injected dispatch failure");
                         }
@@ -578,6 +895,89 @@ class SingleInstanceUtilTest {
                 }
             }
         }
+
+        private static void attemptExit(Path directory, String command) throws Exception {
+            ApplicationExitCoordinator.markFrontendUnavailable();
+            boolean result;
+            try {
+                result = ApplicationExitCoordinator.request("CLOSE", "immediate-exit", () -> {
+                    try {
+                        if ("HOLD_FAILED_EXIT".equals(command)) {
+                            Files.createFile(directory.resolve("exit-running"));
+                            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+                            while (!Files.exists(directory.resolve("resume-exit")) && System.nanoTime() < deadline) {
+                                Thread.sleep(25);
+                            }
+                            return false;
+                        }
+                        if (!"TRY_EXIT".equals(command)) {
+                            Thread.sleep(300);
+                            if ("FAIL_EXIT".equals(command)) {
+                                throw new IllegalStateException("Injected exit failure");
+                            }
+                            return false;
+                        }
+                        Files.createFile(directory.resolve("exit-action"));
+                        return true;
+                    } catch (IOException | InterruptedException exception) { throw new RuntimeException(exception); }
+                });
+            } catch (IllegalStateException exception) {
+                if (!"FAIL_EXIT".equals(command)) { throw exception; }
+                result = false;
+            }
+            publish(directory.resolve("exit-result"), String.valueOf(result));
+        }
+    }
+
+    public static final class ShortDeadlineProcess {
+        public static void main(String[] args) throws Exception {
+            if (args.length > 3) {
+                Thread main = Thread.currentThread();
+                new Thread(() -> {
+                    try { Thread.sleep(100); }
+                    catch (InterruptedException exception) { throw new RuntimeException(exception); }
+                    main.interrupt();
+                }).start();
+            }
+            SingleInstanceUtil.registerInstance(Path.of(args[0]), new String[0], Duration.ofMillis(400));
+            publish(Path.of(args[1]).resolve("initialized"), "unexpected");
+        }
+    }
+
+    // Exercise the real window handler without constructing native AWT/JCEF resources.
+    public static final class LaunchFrame extends MainJFrame {
+        private Path directory;
+        private String argument;
+        private volatile boolean fail;
+
+        static LaunchFrame create(Path directory) throws Exception {
+            Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+            field.setAccessible(true);
+            LaunchFrame frame = (LaunchFrame) ((sun.misc.Unsafe) field.get(null)).allocateInstance(LaunchFrame.class);
+            frame.directory = directory;
+            return frame;
+        }
+
+        @Override public void processUri(URI uri) {
+            if (uri == null || !"file".equals(uri.getScheme())) {
+                super.processUri(uri);
+            } else {
+                argument = Path.of(uri).toString();
+            }
+        }
+        @Override public void setVisible(boolean visible) {
+            if (!SwingUtilities.isEventDispatchThread()) { throw new IllegalStateException("Not on EDT"); }
+            if (fail) { throw new IllegalStateException("Injected window handoff failure"); }
+            try {
+                Files.writeString(directory.resolve("received.jsonl"),
+                        MAPPER.writeValueAsString(argument == null ? "" : argument) + "\n", CREATE, APPEND);
+            } catch (IOException exception) { throw new RuntimeException(exception); }
+            argument = null;
+        }
+        @Override public void setExtendedState(int state) { }
+        @Override public int getExtendedState() { return java.awt.Frame.ICONIFIED; }
+        @Override public void toFront() { }
+        @Override public void requestFocus() { }
     }
 
     public static final class LegacyInstanceProcess {
