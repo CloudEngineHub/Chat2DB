@@ -25,8 +25,10 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * Database-independent, bounded import preview and column mapping. Preview and execution
@@ -75,6 +77,7 @@ public class DbImportPreviewController {
         if (request.getMappings() == null || request.getMappings().isEmpty()) {
             throw new IllegalArgumentException("At least one source column must be mapped");
         }
+        validateMappings(request.getMappings());
         String strategy = request.getUnmappedTarget() == null ? "DEFAULT"
                 : request.getUnmappedTarget().toUpperCase(Locale.ROOT);
         if (!"DEFAULT".equals(strategy) && !"NULL".equals(strategy)) {
@@ -105,6 +108,24 @@ public class DbImportPreviewController {
     private static String extension(String filePath) {
         int dot = filePath.lastIndexOf('.');
         return dot < 0 ? "CSV" : filePath.substring(dot + 1).toUpperCase();
+    }
+
+    private static void validateMappings(List<ImportColumnMapping> mappings) {
+        Set<String> sourceColumns = new HashSet<>();
+        Set<String> targetColumns = new HashSet<>();
+        for (ImportColumnMapping mapping : mappings) {
+            if (mapping == null || !sourceColumns.add(normalizeColumn(mapping.getSourceColumn()))
+                    || !targetColumns.add(normalizeColumn(mapping.getTargetColumn()))) {
+                throw new IllegalArgumentException("Duplicate or invalid import column mapping");
+            }
+        }
+    }
+
+    private static String normalizeColumn(String columnName) {
+        if (columnName == null || columnName.isBlank()) {
+            throw new IllegalArgumentException("Import column mapping must not be blank");
+        }
+        return columnName.toUpperCase(Locale.ROOT);
     }
 
     @Data

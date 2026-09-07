@@ -309,6 +309,9 @@ export default {
   'workspace.importExport.unmappedDefaultValue': '기본값 사용',
   'workspace.importExport.unmappedNullValue': 'NULL 쓰기',
   'workspace.importExport.unmappedRequired': '매핑 필요',
+  'workspace.importExport.duplicateMappingTitle': '중복 매핑이 있습니다',
+  'workspace.importExport.duplicateMappingContent':
+    '대상 열 {1}은(는) 이미 소스 필드 {2}에 매핑되어 있습니다. 다른 대상 열을 선택하세요.',
   'workspace.importExport.unmappedDefault': '매핑되지 않은 열: DEFAULT',
   'workspace.importExport.unmappedNull': '매핑되지 않은 열: NULL',
   'workspace.importExport.requiredUnmapped': '기본값이 없는 NOT NULL 열이 매핑되지 않았습니다',

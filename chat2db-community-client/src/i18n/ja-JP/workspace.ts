@@ -311,6 +311,9 @@ export default {
   'workspace.importExport.unmappedDefaultValue': 'デフォルト値を使用',
   'workspace.importExport.unmappedNullValue': 'NULL を書き込む',
   'workspace.importExport.unmappedRequired': 'マッピング必須',
+  'workspace.importExport.duplicateMappingTitle': '重複マッピングがあります',
+  'workspace.importExport.duplicateMappingContent':
+    'ターゲット列 {1} はソースフィールド {2} にマッピング済みです。別のターゲット列を選択してください。',
   'workspace.importExport.unmappedDefault': '未マッピング列: DEFAULT',
   'workspace.importExport.unmappedNull': '未マッピング列: NULL',
   'workspace.importExport.requiredUnmapped': 'デフォルトなしの NOT NULL 列が未マッピングです',

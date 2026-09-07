@@ -28,6 +28,32 @@ export const useStyles = createStyles(({ css, token }) => ({
   requiredStatus: css`
     color: ${token.colorError};
   `,
+  targetColumnCell: css`
+    position: relative;
+  `,
+  mappingWarningSlot: css`
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    left: 10px;
+    display: flex;
+    width: 16px;
+    height: 16px;
+    transform: translateY(-50%);
+  `,
+  mappingWarningIcon: css`
+    display: flex;
+    color: ${token.colorWarning};
+    cursor: help;
+  `,
+  targetColumnSelect: css`
+    width: 100%;
+  `,
+  targetColumnSelectWarning: css`
+    .ant-select-selector {
+      padding-left: 34px !important;
+    }
+  `,
   mappingTable: css`
     .ant-table-body {
       overflow-y: auto !important;

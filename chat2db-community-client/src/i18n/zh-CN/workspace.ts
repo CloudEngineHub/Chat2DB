@@ -302,6 +302,8 @@ export default {
   'workspace.importExport.unmappedDefaultValue': '使用默认值',
   'workspace.importExport.unmappedNullValue': '写入 NULL',
   'workspace.importExport.unmappedRequired': '必须映射',
+  'workspace.importExport.duplicateMappingTitle': '存在重复映射',
+  'workspace.importExport.duplicateMappingContent': '目标列 {1} 已由源字段 {2} 映射，请选择其他目标列',
   'workspace.importExport.unmappedDefault': '未映射列：使用默认值',
   'workspace.importExport.unmappedNull': '未映射列：写入 NULL',
   'workspace.importExport.requiredUnmapped': '以下无默认值的 NOT NULL 列未映射',

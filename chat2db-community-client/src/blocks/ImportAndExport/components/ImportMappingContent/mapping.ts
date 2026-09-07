@@ -17,6 +17,12 @@ export type ImportMappingRow<TTargetColumn extends { name: string }> =
       targetColumn: TTargetColumn;
     };
 
+export interface IDuplicateImportMapping {
+  sourceColumn: string;
+  targetColumn: string;
+  mappedSource: string;
+}
+
 export const buildInitialImportMapping = (
   sourceColumns: string[],
   suggestedMapping: ISuggestedMapping[],
@@ -48,4 +54,23 @@ export const buildImportMappingRows = <TTargetColumn extends { name: string }>(
         targetColumn,
       })),
   ];
+};
+
+export const getDuplicateImportMappings = (
+  mapping: Record<string, string>,
+): Record<string, IDuplicateImportMapping> => {
+  const firstSourceByTarget = new Map<string, string>();
+  const duplicates: Record<string, IDuplicateImportMapping> = {};
+  Object.entries(mapping).forEach(([sourceColumn, targetColumn]) => {
+    if (targetColumn === SKIP_IMPORT_SOURCE_FIELD) {
+      return;
+    }
+    const mappedSource = firstSourceByTarget.get(targetColumn);
+    if (mappedSource) {
+      duplicates[sourceColumn] = { sourceColumn, targetColumn, mappedSource };
+      return;
+    }
+    firstSourceByTarget.set(targetColumn, sourceColumn);
+  });
+  return duplicates;
 };

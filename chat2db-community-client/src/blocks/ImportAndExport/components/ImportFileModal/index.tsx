@@ -190,9 +190,8 @@ export default memo<IProps>((_props) => {
           : i18n('workspace.menu.exportData')
       }
       headerIconCode={importExportDataBoundInfo?.type === ImportExportType.IMPORT ? 'icon-upload' : 'icon-download'}
-      headerBorder
       width={showImportPreview ? 960 : undefined}
-      centered={showImportPreview}
+      centered
       destroyOnClose
       footer={taskId ? logRenderFooter() : showImportPreview ? null : renderFooter()}
       maskClosable={false}

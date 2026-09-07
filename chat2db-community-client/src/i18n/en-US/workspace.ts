@@ -311,6 +311,9 @@ export default {
   'workspace.importExport.unmappedDefaultValue': 'Use default',
   'workspace.importExport.unmappedNullValue': 'Write NULL',
   'workspace.importExport.unmappedRequired': 'Mapping required',
+  'workspace.importExport.duplicateMappingTitle': 'Duplicate mapping',
+  'workspace.importExport.duplicateMappingContent':
+    'Target column {1} is already mapped from source field {2}. Choose another target column.',
   'workspace.importExport.unmappedDefault': 'Unmapped columns: DEFAULT',
   'workspace.importExport.unmappedNull': 'Unmapped columns: NULL',
   'workspace.importExport.requiredUnmapped': 'NOT NULL columns without a default are unmapped',

@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Modal, Select, Table } from 'antd';
+import { Button, Modal, Select, Table, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import { TriangleAlert } from 'lucide-react';
 import { SKIP_IMPORT_SOURCE_FIELD } from '@/constants/importExport';
 import i18n from '@/i18n';
 import sqlService, { IImportPreview } from '@/service/sql';
-import { buildImportMappingRows, buildInitialImportMapping, ImportMappingRow } from './mapping';
+import {
+  buildImportMappingRows,
+  buildInitialImportMapping,
+  getDuplicateImportMappings,
+  ImportMappingRow,
+} from './mapping';
 import { useStyles } from './style';
 
 interface IProps {
@@ -23,7 +29,7 @@ interface IProps {
  * task progress. Preview and execution share the backend parser.
  */
 const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableName, file, onSubmitted }: IProps) => {
-  const { styles } = useStyles();
+  const { styles, cx } = useStyles();
   const [preview, setPreview] = useState<IImportPreview | null>(null);
   const [fileId, setFileId] = useState<string>();
   const [loading, setLoading] = useState(false);
@@ -92,6 +98,11 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
   }, [preview, mapping, unmappedTarget]);
 
   const mappingRows = preview ? buildImportMappingRows(preview.sourceColumns, preview.targetColumns, mapping) : [];
+  const duplicateMappings = getDuplicateImportMappings(mapping);
+  const updateMapping = (sourceColumn: string, targetColumn: string) => {
+    setMapping((previous) => ({ ...previous, [sourceColumn]: targetColumn }));
+  };
+
   const columns: ColumnsType<ImportMappingRow<IImportPreview['targetColumns'][number]>> = [
     {
       title: i18n('workspace.importExport.sourceField'),
@@ -108,12 +119,40 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
       width: '52%',
       render: (_, record) =>
         record.kind === 'source' ? (
-          <Select
-            style={{ width: '100%' }}
-            value={mapping[record.sourceColumn]}
-            options={targetOptions}
-            onChange={(value) => setMapping((prev) => ({ ...prev, [record.sourceColumn]: value }))}
-          />
+          <div className={styles.targetColumnCell}>
+            {duplicateMappings[record.sourceColumn] && (
+              <span className={styles.mappingWarningSlot}>
+                <Tooltip
+                  title={i18n(
+                    'workspace.importExport.duplicateMappingContent',
+                    duplicateMappings[record.sourceColumn].targetColumn,
+                    duplicateMappings[record.sourceColumn].mappedSource,
+                  )}
+                >
+                  <span
+                    className={styles.mappingWarningIcon}
+                    role="img"
+                    aria-label={i18n(
+                      'workspace.importExport.duplicateMappingContent',
+                      duplicateMappings[record.sourceColumn].targetColumn,
+                      duplicateMappings[record.sourceColumn].mappedSource,
+                    )}
+                  >
+                    <TriangleAlert size={16} />
+                  </span>
+                </Tooltip>
+              </span>
+            )}
+            <Select
+              className={cx(
+                styles.targetColumnSelect,
+                duplicateMappings[record.sourceColumn] && styles.targetColumnSelectWarning,
+              )}
+              value={mapping[record.sourceColumn]}
+              options={targetOptions}
+              onChange={(value) => updateMapping(record.sourceColumn, value)}
+            />
+          </div>
         ) : (
           targetOptions.find(({ value }) => value === record.targetColumn.name)?.label
         ),
@@ -155,6 +194,18 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
     })) || [];
 
   const execute = () => {
+    const duplicateMapping = Object.values(duplicateMappings)[0];
+    if (duplicateMapping) {
+      Modal.error({
+        title: i18n('workspace.importExport.duplicateMappingTitle'),
+        content: i18n(
+          'workspace.importExport.duplicateMappingContent',
+          duplicateMapping.targetColumn,
+          duplicateMapping.mappedSource,
+        ),
+      });
+      return;
+    }
     if (blockedColumns.length > 0) {
       Modal.error({
         title: i18n('workspace.importExport.requiredUnmapped'),

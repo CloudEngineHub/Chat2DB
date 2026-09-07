@@ -313,6 +313,9 @@ export default {
   'workspace.importExport.unmappedDefaultValue': 'Usar valor predeterminado',
   'workspace.importExport.unmappedNullValue': 'Escribir NULL',
   'workspace.importExport.unmappedRequired': 'Asignación obligatoria',
+  'workspace.importExport.duplicateMappingTitle': 'Hay una asignación duplicada',
+  'workspace.importExport.duplicateMappingContent':
+    'La columna de destino {1} ya está asignada desde el campo de origen {2}. Seleccione otra columna.',
   'workspace.importExport.unmappedDefault': 'Columnas sin asignar: DEFAULT',
   'workspace.importExport.unmappedNull': 'Columnas sin asignar: NULL',
   'workspace.importExport.requiredUnmapped': 'Columnas NOT NULL sin predeterminado sin asignar',

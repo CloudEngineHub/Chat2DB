@@ -28,7 +28,9 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DbImportPreviewControllerTest {
@@ -104,6 +106,23 @@ class DbImportPreviewControllerTest {
         assertEquals("public", spec.getTarget().getSchemaName());
         assertEquals("orders", spec.getTarget().getTableName());
         assertEquals("file-1", spec.getImportFileId());
+    }
+
+    @Test
+    void executeRejectsDuplicateTargetMappingsBeforeClaimingTheFile() throws Exception {
+        File stagedFile = tempDirectory.resolve("orders.csv").toFile();
+        Files.writeString(stagedFile.toPath(), "name,email\nAlice,a@example.com\n");
+        CapturingImportFileRegistry importFileRegistry = new CapturingImportFileRegistry(stagedFile);
+        DbImportPreviewController controller = new DbImportPreviewController();
+        setField(controller, "importFileRegistry", importFileRegistry);
+        DbImportPreviewController.ImportExecuteRequest request =
+                new DbImportPreviewController.ImportExecuteRequest();
+        request.setMappings(List.of(
+                ImportColumnMapping.builder().sourceColumn("name").targetColumn("name").build(),
+                ImportColumnMapping.builder().sourceColumn("email").targetColumn("NAME").build()));
+
+        assertThrows(IllegalArgumentException.class, () -> controller.execute(request));
+        assertFalse(importFileRegistry.claimed);
     }
 
     private static void setField(Object target, String fieldName, Object value) throws Exception {
