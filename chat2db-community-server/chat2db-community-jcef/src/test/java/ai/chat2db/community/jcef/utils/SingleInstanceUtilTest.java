@@ -6,10 +6,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -21,6 +25,9 @@ import java.util.function.BooleanSupplier;
 
 import static java.nio.file.StandardOpenOption.APPEND;
 import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.WRITE;
+import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static org.junit.jupiter.api.Assertions.*;
 
 class SingleInstanceUtilTest {
@@ -32,9 +39,24 @@ class SingleInstanceUtilTest {
     void stopChildren() throws Exception {
         for (Child child : children) {
             if (child.process.isAlive()) {
+                try {
+                    child.command("STOP");
+                } catch (IOException ignored) {
+                    child.process.destroy();
+                }
+            }
+        }
+        for (Child child : children) {
+            if (!child.process.waitFor(10, TimeUnit.SECONDS)) {
                 child.process.destroyForcibly();
             }
             assertTrue(child.process.waitFor(10, TimeUnit.SECONDS), "Test process did not exit");
+            child.outputReader.join(10000);
+            assertFalse(child.outputReader.isAlive(), "Process output reader did not finish");
+            assertNull(child.outputFailure, "Process output collection failed");
+            child.process.getOutputStream().close();
+            child.process.getInputStream().close();
+            child.process.getErrorStream().close();
         }
     }
 
@@ -63,29 +85,54 @@ class SingleInstanceUtilTest {
     }
 
     @Test
-    void launchRequestsWaitForReadinessAndPreserveEveryFile() throws Exception {
+    void receivedLaunchRequestsWaitForWindowReadiness() throws Exception {
         Path state = temporary.resolve("state");
         Path firstFile = Files.writeString(temporary.resolve("first file.sql"), "select 1");
         Path secondFile = Files.writeString(temporary.resolve("second file.sql"), "select 2");
-        String uri = "chat2db-community://open?console=test";
         Child primary = start(state, -1, firstFile.toString());
         primary.awaitPrimary();
-        List<Child> requests = new ArrayList<>();
-        for (int index = 0; index < 5; index++) {
-            requests.add(start(state, -1, secondFile.toString(), uri));
-        }
-        for (Child request : requests) {
-            request.awaitSecondary();
-        }
+        start(state, -1, secondFile.toString()).awaitSecondary();
         assertFalse(Files.exists(primary.received()));
 
         primary.command("READY");
-        await(() -> lineCount(primary.received()) == 6);
+        await(() -> lineCount(primary.received()) == 2);
         List<String[]> received = readRequests(primary.received());
         assertArrayEquals(new String[]{firstFile.toString()}, received.get(0));
-        for (String[] request : received.subList(1, received.size())) {
-            assertArrayEquals(new String[]{secondFile.toString(), uri}, request);
+        assertArrayEquals(new String[]{secondFile.toString()}, received.get(1));
+    }
+
+    @Test
+    void subsequentFileAndProtocolRequestsKeepWorking() throws Exception {
+        Path state = temporary.resolve("state");
+        Path sql = Files.writeString(temporary.resolve("query.sql"), "select 1");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY");
+        await(() -> lineCount(primary.received()) == 1);
+        List<String> arguments = List.of(sql.toString(), "chat2db-community://open?console=test", sql.toString());
+        for (int index = 0; index < arguments.size(); index++) {
+            start(state, -1, arguments.get(index)).awaitSecondary();
+            int expected = index + 2;
+            await(() -> lineCount(primary.received()) == expected);
+            assertArrayEquals(new String[]{arguments.get(index)}, readRequests(primary.received()).get(index + 1));
         }
+    }
+
+    @Test
+    void windowStartupCanRegisterAgainWithoutReplayingArguments() throws Exception {
+        Path state = temporary.resolve("state");
+        Path sql = Files.writeString(temporary.resolve("initial.sql"), "select 1");
+        Child primary = start(state, -1, sql.toString());
+        primary.awaitPrimary();
+        primary.command("READY");
+        await(() -> lineCount(primary.received()) == 1);
+        primary.command("REGISTER_AGAIN");
+        await(() -> Files.exists(primary.directory.resolve("registered-again")));
+        assertEquals("true", Files.readString(primary.directory.resolve("registered-again")));
+        start(state, -1).awaitSecondary();
+        await(() -> lineCount(primary.received()) == 2);
+        assertArrayEquals(new String[]{sql.toString()}, readRequests(primary.received()).get(0));
+        assertArrayEquals(new String[0], readRequests(primary.received()).get(1));
     }
 
     @Test
@@ -140,28 +187,108 @@ class SingleInstanceUtilTest {
     @Test
     void onlyDesktopGuiRuntimeUsesTheInstanceGate() {
         assertTrue(SingleInstanceUtil.requiresInstanceLock("DESKTOP", null, "community", false, false));
-        assertTrue(SingleInstanceUtil.requiresInstanceLock("DESKTOP", "true", "pro", false, false));
-        assertTrue(SingleInstanceUtil.requiresInstanceLock("DESKTOP", "true", "local", false, false));
-        assertFalse(SingleInstanceUtil.requiresInstanceLock("DESKTOP", "false", "pro", false, false));
+        assertTrue(SingleInstanceUtil.requiresInstanceLock("DESKTOP", "true", "extension", false, false));
+        assertFalse(SingleInstanceUtil.requiresInstanceLock("DESKTOP", "false", "community", false, false));
         assertFalse(SingleInstanceUtil.requiresInstanceLock("DESKTOP", "true", "cli", false, false));
         assertFalse(SingleInstanceUtil.requiresInstanceLock("DESKTOP", "true", "community", true, false));
-        assertFalse(SingleInstanceUtil.requiresInstanceLock(null, null, "pro", false, false));
-        assertFalse(SingleInstanceUtil.requiresInstanceLock("DESKTOP", "true", "pro", false, true));
+        assertFalse(SingleInstanceUtil.requiresInstanceLock(null, null, "community", false, false));
+        assertFalse(SingleInstanceUtil.requiresInstanceLock("DESKTOP", "true", "community", false, true));
+    }
+
+    @Test
+    void relativeFileNamedLikeAProtocolUsesTheSendersDirectory() throws Exception {
+        Path state = temporary.resolve("state");
+        Path sender = Files.createDirectories(temporary.resolve("sender"));
+        Path sql = Files.writeString(sender.resolve("chat2db-export.sql"), "select 1");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY");
+        start(InstanceProcess.class, state, -1, sender, sql.getFileName().toString()).awaitSecondary();
+        await(() -> lineCount(primary.received()) == 2);
+        String[] arguments = readRequests(primary.received()).get(1);
+        assertEquals(1, arguments.length);
+        assertTrue(Path.of(arguments[0]).isAbsolute());
+        assertTrue(Files.isSameFile(sql, Path.of(arguments[0])));
+    }
+
+    @Test
+    void ipcReadFailureDoesNotStopTheListenerOrRepeatRequests() throws Exception {
+        Path state = temporary.resolve("state");
+        Path ipc = state.resolve("app.ipc");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        Files.createDirectory(ipc);
+        try {
+            primary.command("READY");
+            await(() -> primary.output().contains("waiting for recovery"));
+        } finally {
+            Files.delete(ipc);
+        }
+        start(state, -1).awaitSecondary();
+        await(() -> lineCount(primary.received()) == 2);
+        Thread.sleep(300);
+        assertEquals(2, lineCount(primary.received()), "Unchanged IPC content was delivered twice");
+        start(state, -1).awaitSecondary();
+        await(() -> lineCount(primary.received()) == 3);
+    }
+
+    @Test
+    void legacySenderRequestsAreRetainedUntilTheNewWindowIsReady() throws Exception {
+        Path state = temporary.resolve("state");
+        Path sql = Files.writeString(temporary.resolve("legacy.sql"), "select 1");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        Files.writeString(state.resolve("app.ipc"), sql.toString());
+        Thread.sleep(300);
+        assertFalse(Files.exists(primary.received()));
+        primary.command("READY");
+        await(() -> lineCount(primary.received()) == 2);
+        assertTrue(readRequests(primary.received()).stream()
+                .anyMatch(args -> Arrays.equals(args, new String[]{sql.toString()})));
+    }
+
+    @Test
+    void newSenderUsesTheLegacyOwnersProtocol() throws Exception {
+        Path state = temporary.resolve("state");
+        Path sql = Files.writeString(temporary.resolve("legacy.sql"), "select 1");
+        Child legacy = start(LegacyInstanceProcess.class, state, -1, null);
+        legacy.awaitPrimary();
+        start(state, -1, sql.toString()).awaitSecondary();
+        await(() -> lineCount(legacy.received()) == 1);
+        assertArrayEquals(new String[]{sql.toString()}, readRequests(legacy.received()).get(0));
+        assertFalse(Files.exists(state.resolve("app.ipc.d")), "New sender queued a request the old owner cannot read");
+    }
+
+    @Test
+    void staleLegacyRequestIsNotReplayedWhenStartingANewInstance() throws Exception {
+        Path state = Files.createDirectories(temporary.resolve("state"));
+        Files.writeString(state.resolve("app.ipc"), "chat2db-community://open?console=old");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY");
+        await(() -> lineCount(primary.received()) == 1);
+        start(state, -1).awaitSecondary();
+        await(() -> lineCount(primary.received()) == 2);
+        assertTrue(readRequests(primary.received()).stream().allMatch(args -> args.length == 0));
     }
 
     private Child start(Path state, int port, String... arguments) throws Exception {
+        return start(InstanceProcess.class, state, port, null, arguments);
+    }
+
+    private Child start(Class<?> mainClass, Path state, int port, Path workingDirectory, String... arguments) throws Exception {
         Path directory = Files.createTempDirectory(temporary, "process-");
         String executable = System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java";
         List<String> command = new ArrayList<>(List.of(
                 Path.of(System.getProperty("java.home"), "bin", executable).toString(),
                 "-cp", System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
-                InstanceProcess.class.getName(), state.toString(), directory.toString(), String.valueOf(port)));
+                mainClass.getName(), state.toString(), directory.toString(), String.valueOf(port)));
         command.addAll(Arrays.asList(arguments));
         Path argumentFile = directory.resolve("java.args");
         Files.write(argumentFile, command.subList(1, command.size()).stream()
                 .map(value -> "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"").toList());
         Process process = new ProcessBuilder(command.get(0), "@" + argumentFile).redirectErrorStream(true)
-                .redirectOutput(directory.resolve("output.log").toFile()).start();
+                .directory(workingDirectory == null ? directory.toFile() : workingDirectory.toFile()).start();
         Child child = new Child(process, directory);
         children.add(child);
         return child;
@@ -191,7 +318,27 @@ class SingleInstanceUtilTest {
         assertTrue(condition.getAsBoolean(), "Timed out waiting for subprocess");
     }
 
-    private record Child(Process process, Path directory) {
+    private static final class Child {
+        private final Process process;
+        private final Path directory;
+        private final ByteArrayOutputStream output = new ByteArrayOutputStream();
+        private final Thread outputReader;
+        private volatile IOException outputFailure;
+
+        private Child(Process process, Path directory) {
+            this.process = process;
+            this.directory = directory;
+            outputReader = new Thread(() -> {
+                try {
+                    process.getInputStream().transferTo(output);
+                } catch (IOException exception) {
+                    outputFailure = exception;
+                }
+            }, "instance-test-output");
+            outputReader.setDaemon(true);
+            outputReader.start();
+        }
+
         Path status() { return directory.resolve("status"); }
         Path received() { return directory.resolve("received.jsonl"); }
         int port() throws Exception { return Integer.parseInt(Files.readString(directory.resolve("initialized"))); }
@@ -214,23 +361,26 @@ class SingleInstanceUtilTest {
         }
 
         String output() {
-            try { return Files.readString(directory.resolve("output.log")); }
-            catch (Exception exception) { return exception.toString(); }
+            return output.toString(StandardCharsets.UTF_8);
         }
+    }
+
+    private static void publish(Path path, String value) throws IOException {
+        Path temporary = Files.createTempFile(path.getParent(), "status-", ".tmp");
+        Files.writeString(temporary, value);
+        Files.move(temporary, path, ATOMIC_MOVE, REPLACE_EXISTING);
     }
 
     public static final class InstanceProcess {
         public static void main(String[] args) throws Exception {
             Path directory = Path.of(args[1]);
-            SingleInstanceUtil.Instance instance = new SingleInstanceUtil.Instance(Path.of(args[0]));
-            if (!instance.acquire(Arrays.copyOfRange(args, 3, args.length))) {
-                instance.close();
-                Files.writeString(directory.resolve("status"), "SECONDARY");
+            if (!SingleInstanceUtil.registerInstance(Path.of(args[0]), Arrays.copyOfRange(args, 3, args.length))) {
+                publish(directory.resolve("status"), "SECONDARY");
                 return;
             }
             int port = Integer.parseInt(args[2]);
             ServerSocket server = port < 0 ? null : new ServerSocket(port, 1, InetAddress.getLoopbackAddress());
-            Files.writeString(directory.resolve("initialized"), String.valueOf(server == null ? -1 : server.getLocalPort()));
+            publish(directory.resolve("initialized"), String.valueOf(server == null ? -1 : server.getLocalPort()));
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 try {
                     Files.createFile(directory.resolve("stopping"));
@@ -238,21 +388,50 @@ class SingleInstanceUtilTest {
                     if (server != null) { server.close(); }
                 } catch (Exception exception) { throw new RuntimeException(exception); }
             }));
-            Files.writeString(directory.resolve("status"), "PRIMARY");
+            publish(directory.resolve("status"), "PRIMARY");
             BufferedReader input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
             String command;
             while ((command = input.readLine()) != null) {
                 switch (command) {
-                    case "READY" -> instance.onReady(arguments -> {
+                    case "READY" -> SingleInstanceUtil.onReady(arguments -> {
                         try {
                             Files.writeString(directory.resolve("received.jsonl"),
                                     MAPPER.writeValueAsString(arguments) + "\n", CREATE, APPEND);
                         } catch (Exception exception) { throw new RuntimeException(exception); }
                     });
                     case "EXIT" -> System.exit(0);
+                    case "REGISTER_AGAIN" -> publish(directory.resolve("registered-again"), String.valueOf(
+                            SingleInstanceUtil.registerInstance(Path.of(args[0]), Arrays.copyOfRange(args, 3, args.length))));
+                    case "STOP" -> {
+                        Files.writeString(directory.resolve("allow-exit"), "");
+                        System.exit(0);
+                    }
                     case "CRASH" -> Runtime.getRuntime().halt(0);
                     default -> throw new IllegalArgumentException(command);
                 }
+            }
+        }
+    }
+
+    public static final class LegacyInstanceProcess {
+        public static void main(String[] args) throws Exception {
+            Path state = Files.createDirectories(Path.of(args[0]));
+            Path directory = Path.of(args[1]);
+            try (FileChannel channel = FileChannel.open(state.resolve("app.lock"), CREATE, WRITE);
+                 FileLock lock = channel.lock()) {
+                publish(directory.resolve("initialized"), "-1");
+                publish(directory.resolve("status"), "PRIMARY");
+                Thread listener = new Thread(() -> {
+                    try {
+                        Path ipc = state.resolve("app.ipc");
+                        while (!Files.exists(ipc)) { Thread.sleep(25); }
+                        Files.writeString(directory.resolve("received.jsonl"),
+                                MAPPER.writeValueAsString(new String[]{Files.readString(ipc)}) + "\n");
+                    } catch (Exception exception) { throw new RuntimeException(exception); }
+                });
+                listener.setDaemon(true);
+                listener.start();
+                new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8)).readLine();
             }
         }
     }
