@@ -40,12 +40,20 @@ const NodeFiltering = (props: IProps) => {
 
   const measureScrollWidth = () => {
     const nodes = treeBoxRef.current?.querySelectorAll<HTMLElement>('.ant-tree-treenode');
-    return Array.from(nodes || []).reduce((width, node) => Math.max(width, node.scrollWidth), 1);
+    return Array.from(nodes || []).reduce(
+      (width, node) => Math.max(width, node.scrollWidth),
+      treeBoxRef.current?.clientWidth || 1,
+    );
   };
 
   useLayoutEffect(() => {
-    const frame = requestAnimationFrame(() => setScrollWidth(measureScrollWidth()));
-    return () => cancelAnimationFrame(frame);
+    const treeBox = treeBoxRef.current;
+    if (!treeBox) {
+      return;
+    }
+    const observer = new ResizeObserver(() => setScrollWidth(measureScrollWidth()));
+    observer.observe(treeBox);
+    return () => observer.disconnect();
   }, [treeData]);
 
   const onCheck = (_checkedKeys, halfChecked) => {
