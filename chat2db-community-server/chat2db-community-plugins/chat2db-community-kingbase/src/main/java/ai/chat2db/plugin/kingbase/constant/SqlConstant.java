@@ -236,29 +236,23 @@ public class SqlConstant {
                                                             AND c.relname = ?
                                                           ORDER BY 2 desc;""";
     public static final String COLUMN_SQL = """
-                                            SELECT quote_ident(c.column_name) as column_name ,
-                                                   c.data_type,
-                                                   c.udt_name,
-                                                   quote_ident(c.udt_schema) as udt_schema,
-                                                   c.character_maximum_length,
-                                                   c.is_nullable,
-                                                   c.column_default,
-                                                   c.numeric_precision,
-                                                   c.numeric_scale,
-                                                   c.datetime_precision,
-                                                   c.is_identity,
-                                                   c.identity_start,
-                                                   c.identity_increment,
-                                                   c.identity_maximum,
-                                                   c.identity_minimum,
-                                                   c.identity_cycle,
-                                                   c.identity_generation,
-                                                   c.is_generated,
-                                                   c.generation_expression,
-                                                   c.identity_increment
-                                            FROM information_schema.columns c
-                                            WHERE (table_schema, table_name) = (?, ?)
-                                            ORDER BY ordinal_position;""";
+                                            SELECT a.*,
+                                                   pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+                                                   pg_catalog.pg_get_expr(d.adbin, d.adrelid) AS column_default
+                                            FROM pg_catalog.pg_attribute a
+                                            JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+                                            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                                            LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+                                            WHERE n.nspname = ? AND c.relname = ?
+                                              AND a.attnum > 0 AND NOT a.attisdropped
+                                              AND (pg_catalog.pg_has_role(c.relowner, 'USAGE')
+                                                   OR pg_catalog.has_column_privilege(c.oid, a.attnum, 'SELECT, INSERT, UPDATE, REFERENCES'))
+                                            ORDER BY a.attnum;""";
+    public static final String IDENTITY_SEQUENCE_SQL = """
+                                                       SELECT seqstart, seqincrement, seqmin, seqmax, seqcache, seqcycle
+                                                       FROM pg_catalog.pg_sequence
+                                                       WHERE seqrelid = pg_catalog.pg_get_serial_sequence(?, ?)::pg_catalog.regclass;
+                                                       """;
     public static final String TABLE_INDEX_COMMENT_SQL = """
                                                          SELECT quote_ident(n.nspname)                           as schema_name,
                                                                 quote_ident(t.relname)                           AS table_name,
