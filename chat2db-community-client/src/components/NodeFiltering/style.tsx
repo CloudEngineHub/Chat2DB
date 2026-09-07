@@ -64,6 +64,7 @@ export const useStyles = createStyles(({ css, token }) => {
       padding: 0px 8px;
       display: flex;
       align-items: center;
+      white-space: nowrap;
     `,
     treeTitleCount: css`
       color: ${token.colorTextSecondary};
