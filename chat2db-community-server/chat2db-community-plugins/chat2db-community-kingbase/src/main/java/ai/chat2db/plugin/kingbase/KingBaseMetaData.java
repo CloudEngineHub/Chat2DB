@@ -236,6 +236,7 @@ public class KingBaseMetaData extends DefaultMetaService implements IDbMetaData 
                     }
                     return parentTableInfo;
                 });
+        StringBuilder autoIncrementDDL = new StringBuilder();
         int columnCount;
         if (!partitionInfo[0]) {
             columnCount = DefaultSQLExecutor.getInstance().preExecute(connection, COLUMN_SQL, new String[]{schemaName, tableName}, resultSet -> {
@@ -256,7 +257,9 @@ public class KingBaseMetaData extends DefaultMetaService implements IDbMetaData 
                     String identity = attributes.contains("attidentity") ? resultSet.getString("attidentity") : "";
                     String generated = attributes.contains("attgenerated") ? resultSet.getString("attgenerated") : "";
                     ddlBuilder.append("\t").append(format(columnName)).append("  \t").append(dataType);
-                    if (StringUtils.isNotBlank(identity)) {
+                    if ("i".equals(identity)) {
+                        appendAutoIncrement(connection, formatTableName, columnName, autoIncrementDDL);
+                    } else if (StringUtils.isNotBlank(identity)) {
                         String generation = switch (identity) {
                             case "a" -> "always";
                             case "d" -> "by default";
@@ -355,6 +358,7 @@ public class KingBaseMetaData extends DefaultMetaService implements IDbMetaData 
             });
         }
 
+        ddlBuilder.append(autoIncrementDDL);
         List<Table> tables = this.tables(connection, databaseName, schemaName, tableName);
         if (CollectionUtils.isNotEmpty(tables) && tables.size() == 1) {
             Table table = tables.get(0);
@@ -412,13 +416,45 @@ public class KingBaseMetaData extends DefaultMetaService implements IDbMetaData 
             if (!resultSet.next()) {
                 throw new SQLException("Identity sequence metadata is missing");
             }
-            ddl.append(" (start with ").append(resultSet.getLong("seqstart"))
-                    .append(" increment by ").append(resultSet.getLong("seqincrement"))
-                    .append(" minvalue ").append(resultSet.getLong("seqmin"))
-                    .append(" maxvalue ").append(resultSet.getLong("seqmax"))
-                    .append(" cache ").append(resultSet.getLong("seqcache"))
-                    .append(resultSet.getBoolean("seqcycle") ? " cycle)" : " no cycle)");
+            ddl.append(" (");
+            appendSequenceOptions(resultSet, ddl);
+            ddl.append(")");
         });
+    }
+
+    private void appendAutoIncrement(Connection connection, String tableName, String columnName, StringBuilder ddl) {
+        DefaultSQLExecutor.getInstance().preExecute(connection, IDENTITY_SEQUENCE_SQL, new String[]{tableName, columnName}, resultSet -> {
+            if (!resultSet.next()) {
+                throw new SQLException("Auto-increment sequence metadata is missing");
+            }
+            String sequenceName = getMetaDataName(resultSet.getString("sequence_schema"), resultSet.getString("sequence_name"));
+            // Match sys_dump: attach AUTO_INCREMENT after keys, then restore its current counter.
+            ddl.append("alter table ").append(tableName).append(" alter column ").append(format(columnName))
+                    .append(" add auto_increment (sequence name ").append(sequenceName).append(" ");
+            appendSequenceOptions(resultSet, ddl);
+            ddl.append(")");
+            DefaultSQLExecutor.getInstance().execute(connection, SEQUENCE_STATE_SQL.formatted(sequenceName), state -> {
+                if (!state.next()) {
+                    throw new SQLException("Auto-increment sequence state is missing");
+                }
+                long nextValue = state.getLong("next_value");
+                if (nextValue > 0) {
+                    ddl.append(", auto_increment = ").append(nextValue);
+                }
+                ddl.append(";\nselect pg_catalog.setval('").append(getSQLIdentifierProcessor().escapeString(sequenceName))
+                        .append("', ").append(state.getLong("last_value")).append(", ")
+                        .append(state.getBoolean("is_called")).append(");\n");
+            });
+        });
+    }
+
+    private void appendSequenceOptions(ResultSet resultSet, StringBuilder ddl) throws SQLException {
+        ddl.append("start with ").append(resultSet.getLong("seqstart"))
+                .append(" increment by ").append(resultSet.getLong("seqincrement"))
+                .append(" minvalue ").append(resultSet.getLong("seqmin"))
+                .append(" maxvalue ").append(resultSet.getLong("seqmax"))
+                .append(" cache ").append(resultSet.getLong("seqcache"))
+                .append(resultSet.getBoolean("seqcycle") ? " cycle" : " no cycle");
     }
 
     @Override

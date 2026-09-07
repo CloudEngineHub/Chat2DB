@@ -31,6 +31,42 @@ class KingBaseTableDDLTest {
     private static final String[] SEQUENCE_COLUMNS = {"seqstart", "seqincrement", "seqmin", "seqmax", "seqcache", "seqcycle"};
 
     @Test
+    void mysqlAutoIncrementPreservesSequenceNameAndCounterAfterKeys() throws Exception {
+        for (boolean called : List.of(false, true)) {
+            Fixture fixture = new Fixture(rows(IDENTITY_COLUMNS, new Object[]{"id", "bigint", null, true, "i"}));
+            fixture.results.put(IDENTITY_SEQUENCE_SQL, rows(new String[]{"seqstart", "seqincrement", "seqmin", "seqmax",
+                            "seqcache", "seqcycle", "sequence_schema", "sequence_name"},
+                    new Object[]{1L, 1L, 1L, Long.MAX_VALUE, 1L, false, "sch\"ema", "seq'\"name"}));
+            String stateQuery = SEQUENCE_STATE_SQL.formatted("\"sch\"\"ema\".\"seq'\"\"name\"");
+            fixture.results.put(stateQuery, rows(new String[]{"last_value", "next_value", "is_called"},
+                    new Object[]{3_000_000_000L, 4_000_000_000L, called}));
+            String indexDDL = "CREATE INDEX id_idx ON \"app\".\"orders\" (id)";
+            fixture.results.put(INDEX_SQL, rows(new String[]{"INDEXNAME", "INDEXDEF"}, new Object[]{"id_idx", indexDDL}));
+
+            String ddl = fixture.export("app", "orders");
+
+            String attach = "alter table \"app\".\"orders\" alter column \"id\" add auto_increment"
+                    + " (sequence name \"sch\"\"ema\".\"seq'\"\"name\" start with 1 increment by 1 minvalue 1"
+                    + " maxvalue 9223372036854775807 cache 1 no cycle), auto_increment = 4000000000;";
+            assertTrue(ddl.contains(attach), ddl);
+            assertTrue(ddl.indexOf(indexDDL) < ddl.indexOf(attach), ddl);
+            assertTrue(ddl.contains("select pg_catalog.setval('\"sch\"\"ema\".\"seq''\"\"name\"', 3000000000, " + called + ");"), ddl);
+            assertTrue(fixture.executed.contains(stateQuery));
+        }
+    }
+
+    @Test
+    void preservesAttachedEnumNameAndDefaultCast() throws Exception {
+        String type = "ENUM('open', 'O''Brien') NAMES public.\"Enum_123\"";
+        Fixture fixture = new Fixture(rows(BASIC_COLUMNS,
+                new Object[]{"state", type, "'open'::public.\"Enum_123\"", false}));
+
+        String ddl = fixture.export("app", "orders");
+
+        assertTrue(ddl.contains("\"state\"  \t" + type + " default 'open'::public.\"Enum_123\""), ddl);
+    }
+
+    @Test
     void exportsTypesAndDefaultsWithoutInformationSchemaOrOptionalCatalogAttributes() throws Exception {
         Fixture fixture = new Fixture(rows(BASIC_COLUMNS,
                 new Object[]{"select", "character varying(37)", "'O''Brien'::character varying", true},
@@ -190,7 +226,7 @@ class KingBaseTableDDLTest {
         }
 
         private PreparedStatement statement(String sql) throws SQLException {
-            assertTrue(QUERIES.contains(sql), "Unexpected query: " + sql);
+            assertTrue(QUERIES.contains(sql) || results.containsKey(sql), "Unexpected query: " + sql);
             assertFalse(sql.contains("information_schema.columns"), "The compatibility view must not be required");
             ResultSet result = results.containsKey(sql) ? results.get(sql) : rows(new String[]{"unused"});
             List<String> bindings = new ArrayList<>();
