@@ -1,143 +1,213 @@
 package ai.chat2db.community.jcef.utils;
 
-import ai.chat2db.community.jcef.event.manager.FileOpenEventManager;
-import ai.chat2db.community.tools.util.ConfigUtils;
+import ai.chat2db.community.tools.runtime.ProductRuntimeIdentityProvider;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
+import org.cef.OS;
 
+import javax.swing.JOptionPane;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
-import java.nio.file.*;
+import java.nio.file.ClosedWatchServiceException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 @Slf4j
 public final class SingleInstanceUtil {
 
-    private static final Path LOCK_FILE_PATH;
-    private static final Path IPC_FILE_PATH;
-    private static FileChannel lockChannel;
-    private static FileLock fileLock;
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static Instance instance;
 
-    static {
-        String lockFileName = "app.lock";
-        String ipcFileName = "app.ipc";
-        String basePath = ConfigUtils.getBasePath();
-        LOCK_FILE_PATH = Paths.get(basePath, lockFileName);
-        IPC_FILE_PATH = Paths.get(basePath, ipcFileName);
+    private SingleInstanceUtil() {
     }
 
-
-    private SingleInstanceUtil() {}
-
-
-    public static boolean registerInstance(String[] args, Consumer<String> argumentConsumer) {
+    public static boolean registerDesktopInstance(String[] args) {
+        if (!requiresInstanceLock(System.getProperty("chat2db.mode"),
+                System.getProperty("chat2db.gui"), System.getProperty("chat2db.runtime.mode"),
+                Boolean.getBoolean("chat2db.cli.runtime"), OS.isMacintosh())) {
+            return true;
+        }
         try {
-            Files.createDirectories(LOCK_FILE_PATH.getParent());
-            lockChannel = FileChannel.open(LOCK_FILE_PATH, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-            fileLock = lockChannel.tryLock();
-
-            if (fileLock == null) {
-                log.info("Lock file is held by another instance. Sending arguments to it.");
-                if (args != null && args.length > 0) {
-                    sendArgumentToFirstInstance(args[0]);
-                }
-                lockChannel.close();
-                return false;
-            }
-            log.info("Successfully acquired the instance lock.");
-            addShutdownHook();
-            startIpcListener(argumentConsumer);
-            if (args.length > 0) {
-                if (args[0].startsWith("chat2db-")) {
-                    return true;
-                }
-                Path path = Paths.get(args[0]);
-                if (Files.exists(path)) {
-                    String filePath = path.toAbsolutePath().toString();
-                    FileOpenEventManager.stashFileOpenEvent(filePath);
-                }
-            }
-            return true;
-
-        } catch (OverlappingFileLockException e) {
-            log.info("Another instance is running (OverlappingFileLockException). Sending arguments.");
-            if (args != null && args.length > 0) {
-                sendArgumentToFirstInstance(args[0]);
-            }
+            return registerInstance(args);
+        } catch (IOException exception) {
+            log.error("Cannot initialize the desktop instance lock", exception);
+            JOptionPane.showMessageDialog(null, exception.getLocalizedMessage(),
+                    ProductRuntimeIdentityProvider.current().displayName(), JOptionPane.ERROR_MESSAGE);
+            System.exit(1);
             return false;
-        } catch (IOException e) {
-            log.error("An I/O error occurred during single instance registration. Starting as a new instance.", e);
-            return true;
         }
     }
 
-
-    private static void addShutdownHook() {
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try {
-                if (fileLock != null && fileLock.isValid()) {
-                    fileLock.release();
-                }
-                if (lockChannel != null && lockChannel.isOpen()) {
-                    lockChannel.close();
-                }
-                Files.deleteIfExists(LOCK_FILE_PATH);
-                Files.deleteIfExists(IPC_FILE_PATH);
-                log.info("Instance lock released and cleanup complete.");
-            } catch (IOException e) {
-                log.warn("Error during lock file cleanup.", e);
-            }
-        }));
+    static boolean requiresInstanceLock(String mode, String gui, String runtime, boolean cli, boolean mac) {
+        return "DESKTOP".equalsIgnoreCase(mode) && !"false".equalsIgnoreCase(gui)
+                && !"cli".equalsIgnoreCase(runtime) && !cli && !mac;
     }
 
+    public static synchronized boolean registerInstance(String[] args) throws IOException {
+        if (instance != null) {
+            return true;
+        }
+        Path directory = Path.of(System.getProperty("user.home"),
+                ProductRuntimeIdentityProvider.current().stateDirectoryName());
+        Instance candidate = new Instance(directory);
+        try {
+            if (candidate.acquire(args)) {
+                // Keep the OS lock until process exit, including all JVM shutdown hooks.
+                instance = candidate;
+                return true;
+            }
+        } catch (IOException | RuntimeException exception) {
+            candidate.close();
+            throw exception;
+        }
+        candidate.close();
+        return false;
+    }
 
-    private static void startIpcListener(Consumer<String> argumentConsumer) {
-        new Thread(() -> {
-            try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
-                Path parentDir = IPC_FILE_PATH.getParent();
-                parentDir.register(watchService, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_MODIFY);
-                log.info("IPC listener started, watching for changes to {}", IPC_FILE_PATH.getFileName());
+    public static synchronized void onReady(Consumer<String[]> consumer) {
+        if (instance != null) {
+            instance.onReady(consumer);
+        }
+    }
 
-                while (true) {
-                    WatchKey key = watchService.take();
-                    TimeUnit.MILLISECONDS.sleep(100);
-                    for (WatchEvent<?> event : key.pollEvents()) {
-                        Path changedFile = (Path) event.context();
-                        if (changedFile.getFileName().equals(IPC_FILE_PATH.getFileName())) {
-                            try {
-                                String argument = Files.readString(IPC_FILE_PATH);
-                                if (StringUtils.isNotBlank(argument)) {
-                                    log.info("Received argument from another instance: {}", argument);
-                                    argumentConsumer.accept(argument);
-                                }
-                            } catch (IOException e) {
-                                log.warn("Error reading IPC file.", e);
-                            }
+    static final class Instance implements AutoCloseable {
+        private final Path directory;
+        private final Path inbox;
+        private FileChannel channel;
+        private FileLock lock;
+        private WatchService watcher;
+        private volatile Consumer<String[]> consumer;
+        private volatile boolean closed;
+
+        Instance(Path directory) {
+            this.directory = directory;
+            this.inbox = directory.resolve("app.ipc.d");
+        }
+
+        void onReady(Consumer<String[]> handler) {
+            consumer = handler;
+        }
+
+        boolean acquire(String[] args) throws IOException {
+            Files.createDirectories(directory);
+            channel = FileChannel.open(directory.resolve("app.lock"), CREATE, WRITE);
+            try {
+                lock = channel.tryLock();
+            } catch (OverlappingFileLockException ignored) {
+                lock = null;
+            }
+            if (lock == null) {
+                send(args);
+                log.info("Another desktop instance is running; launch request forwarded.");
+                return false;
+            }
+            Files.createDirectories(inbox);
+            watcher = inbox.getFileSystem().newWatchService();
+            inbox.register(watcher, StandardWatchEventKinds.ENTRY_CREATE);
+            send(args);
+            Thread listener = new Thread(this::listen, "chat2db-instance-requests");
+            listener.setDaemon(true);
+            listener.start();
+            log.info("Successfully acquired the instance lock.");
+            return true;
+        }
+
+        private static List<String> launchArguments(String[] args) {
+            List<String> arguments = new ArrayList<>();
+            for (String arg : args) {
+                if (arg.startsWith("chat2db-")) {
+                    arguments.add(arg);
+                } else if (!arg.startsWith("-")) {
+                    Path file = Path.of(arg);
+                    if (Files.isRegularFile(file)) {
+                        arguments.add(file.toAbsolutePath().normalize().toString());
+                    }
+                }
+            }
+            return arguments;
+        }
+
+        private void send(String[] args) throws IOException {
+            Files.createDirectories(inbox);
+            String name = "%019d-%s".formatted(System.currentTimeMillis(), UUID.randomUUID());
+            Path temporary = Files.createTempFile(inbox, name, ".tmp");
+            try {
+                MAPPER.writeValue(temporary.toFile(), launchArguments(args));
+                Files.move(temporary, inbox.resolve(name + ".json"));
+            } finally {
+                Files.deleteIfExists(temporary);
+            }
+        }
+
+        private void listen() {
+            try {
+                while (!closed) {
+                    dispatchPending();
+                    WatchKey key = watcher.poll(200, TimeUnit.MILLISECONDS);
+                    if (key != null) {
+                        key.pollEvents();
+                        if (!key.reset()) {
+                            throw new IOException("Desktop request directory is no longer available");
                         }
                     }
-                    if (!key.reset()) {
-                        log.warn("WatchKey is no longer valid. IPC listener is shutting down.");
-                        break;
-                    }
                 }
-            } catch (IOException | InterruptedException e) {
-                log.error("IPC listener thread was interrupted or failed.", e);
+            } catch (ClosedWatchServiceException ignored) {
+                // Explicit close is used by failed startup and isolated lifecycle tests.
+            } catch (IOException exception) {
+                log.error("Desktop launch request listener failed", exception);
+            } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
             }
-        }).start();
-    }
+        }
 
+        private void dispatchPending() throws IOException {
+            Consumer<String[]> handler = consumer;
+            if (handler == null) {
+                return;
+            }
+            List<Path> requests = new ArrayList<>();
+            try (var entries = Files.newDirectoryStream(inbox, "*.json")) {
+                entries.forEach(requests::add);
+            }
+            requests.sort(Comparator.comparing(Path::getFileName));
+            for (Path request : requests) {
+                try {
+                    String[] arguments = MAPPER.readValue(request.toFile(), String[].class);
+                    handler.accept(arguments);
+                } catch (IOException | RuntimeException exception) {
+                    log.error("Cannot process desktop launch request {}", request.getFileName(), exception);
+                }
+                Files.deleteIfExists(request);
+            }
+        }
 
-    private static void sendArgumentToFirstInstance(String argument) {
-        try {
-            Files.writeString(IPC_FILE_PATH, argument, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            log.info("Successfully sent argument '{}' to the first instance.", argument);
-        } catch (IOException e) {
-            log.error("Failed to send argument to the first instance.", e);
+        @Override
+        public void close() throws IOException {
+            closed = true;
+            try {
+                if (watcher != null) {
+                    watcher.close();
+                }
+            } finally {
+                if (channel != null) {
+                    channel.close();
+                }
+            }
+            // Never unlink app.lock: another process may already be acquiring the same file.
         }
     }
 }

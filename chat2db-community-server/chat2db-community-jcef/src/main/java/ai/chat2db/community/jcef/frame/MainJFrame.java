@@ -165,21 +165,24 @@ public class MainJFrame extends JFrame {
             }
         }
     }
-    private static void handleNewUri(String uriString) {
+    public void handleLaunchRequest(String[] arguments) {
         SwingUtilities.invokeLater(() -> {
-            if (JcefContext.getInstance().getFrame_() != null) {
-                if (uriString != null) {
-                    JcefContext.getInstance().getFrame_().processUri(UriUtil.processInput(uriString));
-                    JcefContext.getInstance().getFrame_().toFront();
-                    JcefContext.getInstance().getFrame_().requestFocus();
+            for (String argument : arguments) {
+                try {
+                    processUri(UriUtil.processInput(argument));
+                } catch (RuntimeException exception) {
+                    log.error("Cannot handle desktop launch argument", exception);
                 }
-            } else {
-                log.error("Error: application is not initialized; cannot process URI: {}", uriString);
             }
+            setVisible(true);
+            setExtendedState(getExtendedState() & ~Frame.ICONIFIED);
+            toFront();
+            requestFocus();
         });
     }
     public void start(String[] args) {
-        if (!OS.isMacintosh() && !SingleInstanceUtil.registerInstance(args, MainJFrame::handleNewUri)) {
+        // Older product entry points still reach the window before registering an instance.
+        if (!SingleInstanceUtil.registerDesktopInstance(args)) {
             System.exit(0);
         }
         UrlProtocolRegistrarUtil.register();
