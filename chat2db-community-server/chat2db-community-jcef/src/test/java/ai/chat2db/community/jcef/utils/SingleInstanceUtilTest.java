@@ -16,11 +16,14 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import static java.nio.file.StandardOpenOption.APPEND;
@@ -145,6 +148,54 @@ class SingleInstanceUtilTest {
         start(state, -1).awaitSecondary();
         await(() -> lineCount(primary.received()) == 2);
         assertTrue(readRequests(primary.received()).stream().allMatch(args -> args.length == 0));
+    }
+
+    @Test
+    void sameTimestampReplacementsDeliverChangedAndRepeatedArgumentsOnce() throws Exception {
+        Path state = temporary.resolve("state");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY");
+        await(() -> lineCount(primary.received()) == 1);
+        FileTime timestamp = FileTime.fromMillis(System.currentTimeMillis() - 10000);
+        List<String> arguments = List.of("first.sql", "second.sql", "second.sql", "", "");
+        for (int index = 0; index < arguments.size(); index++) {
+            Path replacement = Files.createTempFile(state, "ipc-", ".tmp");
+            Files.writeString(replacement, arguments.get(index));
+            Files.setLastModifiedTime(replacement, timestamp);
+            Files.move(replacement, state.resolve("app.ipc"), ATOMIC_MOVE, REPLACE_EXISTING);
+            int expectedCount = index + 2;
+            await(() -> lineCount(primary.received()) == expectedCount);
+            assertArrayEquals(arguments.get(index).isEmpty() ? new String[0] : new String[]{arguments.get(index)},
+                    readRequests(primary.received()).get(index + 1));
+            Thread.sleep(250);
+            assertEquals(expectedCount, lineCount(primary.received()), "Late file events repeated a request");
+        }
+    }
+
+    @Test
+    void inPlaceWriteWithTheSameTimestampIsDetectedFromFileEvents() throws Exception {
+        Path state = temporary.resolve("state");
+        Path ipc = state.resolve("app.ipc");
+        Child primary = start(state, -1);
+        primary.awaitPrimary();
+        primary.command("READY");
+        await(() -> lineCount(primary.received()) == 1);
+        primary.command("PAUSE_NEXT_DELIVERY");
+        await(() -> Files.exists(primary.directory.resolve("pause-enabled")));
+        publish(ipc, "first.sql");
+        await(() -> Files.exists(primary.directory.resolve("delivery-paused")));
+        FileTime timestamp = Files.getLastModifiedTime(ipc);
+        try {
+            Files.writeString(ipc, "other.sql");
+            Files.setLastModifiedTime(ipc, timestamp);
+        } finally {
+            primary.command("RESUME_DELIVERY");
+        }
+        await(() -> lineCount(primary.received()) == 3);
+        assertArrayEquals(new String[]{"other.sql"}, readRequests(primary.received()).get(2));
+        Thread.sleep(300);
+        assertEquals(3, lineCount(primary.received()));
     }
 
     @Test
@@ -389,6 +440,7 @@ class SingleInstanceUtilTest {
                 } catch (Exception exception) { throw new RuntimeException(exception); }
             }));
             publish(directory.resolve("status"), "PRIMARY");
+            AtomicReference<CountDownLatch> deliveryPause = new AtomicReference<>();
             BufferedReader input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
             String command;
             while ((command = input.readLine()) != null) {
@@ -397,9 +449,21 @@ class SingleInstanceUtilTest {
                         try {
                             Files.writeString(directory.resolve("received.jsonl"),
                                     MAPPER.writeValueAsString(arguments) + "\n", CREATE, APPEND);
+                            CountDownLatch pause = deliveryPause.get();
+                            if (pause != null) {
+                                Files.createFile(directory.resolve("delivery-paused"));
+                                if (!pause.await(15, TimeUnit.SECONDS)) {
+                                    throw new IllegalStateException("Test did not resume delivery");
+                                }
+                            }
                         } catch (Exception exception) { throw new RuntimeException(exception); }
                     });
                     case "EXIT" -> System.exit(0);
+                    case "PAUSE_NEXT_DELIVERY" -> {
+                        deliveryPause.set(new CountDownLatch(1));
+                        Files.createFile(directory.resolve("pause-enabled"));
+                    }
+                    case "RESUME_DELIVERY" -> deliveryPause.getAndSet(null).countDown();
                     case "REGISTER_AGAIN" -> publish(directory.resolve("registered-again"), String.valueOf(
                             SingleInstanceUtil.registerInstance(Path.of(args[0]), Arrays.copyOfRange(args, 3, args.length))));
                     case "STOP" -> {

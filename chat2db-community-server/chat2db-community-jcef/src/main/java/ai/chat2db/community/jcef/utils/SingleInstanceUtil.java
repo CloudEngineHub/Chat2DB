@@ -15,8 +15,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayDeque;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -63,7 +65,7 @@ public final class SingleInstanceUtil {
         }
         Files.createDirectories(directory);
         Path ipc = directory.resolve("app.ipc");
-        FileTime lastWrite = modifiedTime(ipc);
+        IpcVersion lastWrite = ipcVersion(ipc);
         String argument = launchArgument(args);
         FileChannel channel = FileChannel.open(directory.resolve("app.lock"), CREATE, WRITE);
         boolean primary = false;
@@ -124,27 +126,34 @@ public final class SingleInstanceUtil {
         return argument.isEmpty() ? new String[0] : new String[]{argument};
     }
 
-    private static FileTime modifiedTime(Path ipc) throws IOException {
+    private static IpcVersion ipcVersion(Path ipc) throws IOException {
         try {
-            return Files.getLastModifiedTime(ipc);
+            BasicFileAttributes attributes = Files.readAttributes(ipc, BasicFileAttributes.class);
+            return new IpcVersion(attributes.fileKey(), attributes.lastModifiedTime());
         } catch (NoSuchFileException ignored) {
             return null;
         }
     }
 
-    private static void listen(Path ipc, WatchService watcher, FileTime lastWrite, String initialArgument) {
+    private static void listen(Path ipc, WatchService watcher, IpcVersion lastWrite, String initialArgument) {
         Queue<String[]> pending = new ArrayDeque<>();
         pending.add(arguments(initialArgument));
         boolean failed = false;
+        boolean ipcChanged = false;
+        String lastArgument = null;
         try (watcher) {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
-                    FileTime modified = modifiedTime(ipc);
-                    if (modified != null && !modified.equals(lastWrite)) {
+                    IpcVersion modified = ipcVersion(ipc);
+                    if (modified != null && (ipcChanged || !modified.equals(lastWrite))) {
                         String argument = Files.readString(ipc);
-                        if (modified.equals(modifiedTime(ipc))) {
-                            pending.add(arguments(argument));
+                        if (modified.equals(ipcVersion(ipc))) {
+                            if (!modified.equals(lastWrite) || !Objects.equals(argument, lastArgument)) {
+                                pending.add(arguments(argument));
+                            }
                             lastWrite = modified;
+                            lastArgument = argument;
+                            ipcChanged = false;
                         }
                     }
                     Consumer<String[]> handler = argumentConsumer;
@@ -161,7 +170,8 @@ public final class SingleInstanceUtil {
                 }
                 WatchKey key = watcher.poll(100, TimeUnit.MILLISECONDS);
                 if (key != null) {
-                    key.pollEvents();
+                    ipcChanged |= key.pollEvents().stream().anyMatch(event ->
+                            ipc.getFileName().equals(event.context()));
                     key.reset();
                 }
             }
@@ -170,5 +180,9 @@ public final class SingleInstanceUtil {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    // File identity distinguishes atomic replacements that preserve their modification time.
+    private record IpcVersion(Object fileKey, FileTime modifiedTime) {
     }
 }
