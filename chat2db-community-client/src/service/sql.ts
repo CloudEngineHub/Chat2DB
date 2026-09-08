@@ -1,4 +1,5 @@
 import createRequest from './base';
+import { ImportUnmappedTarget } from '@/constants/importExport';
 import {
   IPageResponse,
   IPageParams,
@@ -438,7 +439,49 @@ const prepareCopyTable = createRequest<ITableParams, string>('/api/rdb/table/cop
 // Copy table
 const copyTable = createRequest<ICopyTableParams, void>('/api/rdb/table/copy', { method: 'post' });
 
+/** Database-independent import preview and column mapping. */
+export interface IImportPreview {
+  sourceColumns: string[];
+  previewData: string[][];
+  targetTableName: string;
+  targetColumns: {
+    name: string;
+    dataType: string;
+    nullable: boolean;
+    autoIncrement: boolean;
+    defaultValue: string | null;
+    comment: string | null;
+  }[];
+  suggestedMapping: { sourceColumn: string; targetColumn: string }[];
+  previewLimit: number;
+}
 
+export interface IImportTaskSubmitResult {
+  taskId: number;
+}
+
+const uploadImportFile = createRequest<{ file: File }, string>('/api/rdb/import_preview/upload', {
+  method: 'post',
+  contentType: 'formData',
+});
+
+const getImportPreview = createRequest<
+  { dataSourceId: number; databaseName: string; schemaName?: string; tableName: string; fileId: string },
+  IImportPreview
+>('/api/rdb/import_preview/preview', { method: 'post' });
+
+const executeImportWithMapping = createRequest<
+  {
+    dataSourceId: number;
+    databaseName: string;
+    schemaName?: string;
+    tableName: string;
+    fileId: string;
+    mappings: { sourceColumn: string | null; targetColumn: string }[];
+    unmappedTarget: ImportUnmappedTarget;
+  },
+  IImportTaskSubmitResult
+>('/api/rdb/import_preview/execute', { method: 'post' });
 /** Active InnoDB transactions (MYSQL-OPS-002). */
 export interface IActiveTransactionItem {
   trxId: string | null;
@@ -557,6 +600,9 @@ export default {
   getAllTableList,
   getAllFieldByTable,
   checkIsSelectSQL,
+  getImportPreview,
+  executeImportWithMapping,
+  uploadImportFile,
   getActiveTransactionList,
   getDataSourceList,
 };
