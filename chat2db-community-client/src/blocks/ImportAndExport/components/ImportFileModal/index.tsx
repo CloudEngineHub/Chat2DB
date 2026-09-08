@@ -12,7 +12,6 @@ import { ImportExportTaskDetails } from '@/typings/importExport';
 import ImportMappingContent from '@/blocks/ImportAndExport/components/ImportMappingContent';
 import jcefApi from '@/jcef';
 import { isDesktop } from '@/utils/env';
-import type { FileUrl } from '@/components/UploadLocalFile';
 import {
   IMPORT_TARGET_TABLE_REFRESH_EVENT,
   shouldRefreshImportTargetTable,
@@ -22,8 +21,8 @@ interface IProps {
   className?: string;
 }
 
-const isPreviewFile = (file?: FileUrl) => {
-  const name = file?.file?.name?.toLowerCase();
+const isPreviewFile = (file?: File) => {
+  const name = file?.name.toLowerCase();
   return name?.endsWith('.csv') || name?.endsWith('.xls') || name?.endsWith('.xlsx');
 };
 
@@ -33,7 +32,7 @@ export default memo<IProps>((_props) => {
   const previousTaskDetailsRef = useRef<ImportExportTaskDetails>();
   const [taskId, setTaskId] = useState<number>();
   const [taskDetails, setTaskDetails] = useState<ImportExportTaskDetails>();
-  const [importFile, setImportFile] = useState<FileUrl>();
+  const [importFile, setImportFile] = useState<File>();
 
   const { importExportDataBoundInfo, setImportExportDataBoundInfo, getTaskList } = useImportExportStore((state) => {
     return {
@@ -63,7 +62,7 @@ export default memo<IProps>((_props) => {
     });
   };
 
-  const handleImportFileChange = (file: FileUrl) => {
+  const handleImportFileChange = (file: File) => {
     setImportFile(file);
   };
 
@@ -143,13 +142,13 @@ export default memo<IProps>((_props) => {
     isPreviewFile(importFile) &&
     importExportDataBoundInfo.dataSourceId != null &&
     importExportDataBoundInfo.databaseName != null &&
-    importFile?.file != null
+    importFile != null
       ? {
           dataSourceId: importExportDataBoundInfo.dataSourceId,
           databaseName: importExportDataBoundInfo.databaseName,
           schemaName: importExportDataBoundInfo.schemaName,
           tableName: importExportDataBoundInfo.tableName || '',
-          file: importFile.file,
+          file: importFile,
         }
       : null;
   const showImportPreview = taskId == null && importPreviewContext != null;

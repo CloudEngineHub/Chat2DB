@@ -13,7 +13,7 @@ import jcefApi from '@/jcef';
 interface IProps {
   className?: string;
   setIsReady?: (p: boolean) => void;
-  onImportFileChange?: (file: FileUrl) => void;
+  onImportFileChange?: (file: File) => void;
 }
 
 export interface ImportExportFileRef {
@@ -35,10 +35,10 @@ const exportTypeOptions = [
 ];
 
 const ImportExportFile = forwardRef((props: IProps, ref: ForwardedRef<ImportExportFileRef>) => {
-  const { setIsReady } = props;
+  const { setIsReady, onImportFileChange } = props;
   const { styles } = useStyles();
   const [form] = Form.useForm();
-  const [fileUrlList, setFileUrlList] = useState<string[]>([]);
+  const [selectedFilePaths, setSelectedFilePaths] = useState<string[]>([]);
   const [exportLocation, setExportLocation] = useState<string>('');
   const [formValue, setFormValue] = useState<ImportExportFormValue>({
     exportType: ImportExportFileType.CSV,
@@ -72,9 +72,9 @@ const ImportExportFile = forwardRef((props: IProps, ref: ForwardedRef<ImportExpo
   // file list changes
   useEffect(() => {
     if (isImport) {
-      setIsReady?.(!!fileUrlList.length);
+      setIsReady?.(!!selectedFilePaths.length);
     }
-  }, [fileUrlList, isImport]);
+  }, [isImport, selectedFilePaths]);
 
   useEffect(() => {
     if (isExport) {
@@ -82,11 +82,10 @@ const ImportExportFile = forwardRef((props: IProps, ref: ForwardedRef<ImportExpo
     }
   }, [exportLocation, formValue]);
 
-  const handleFileUrlListChange = (_fileUrlList) => {
-    const paths = _fileUrlList.map((item) => item.filePath);
-    setFileUrlList(paths);
-    if (isImport && _fileUrlList[0] && props.onImportFileChange) {
-      props.onImportFileChange(_fileUrlList[0]);
+  const handleSelectedFilesChange = (files: FileUrl[]) => {
+    setSelectedFilePaths(files.map((item) => item.filePath).filter((path): path is string => !!path));
+    if (isImport && files[0]?.file) {
+      onImportFileChange?.(files[0].file);
     }
   };
 
@@ -116,7 +115,7 @@ const ImportExportFile = forwardRef((props: IProps, ref: ForwardedRef<ImportExpo
             ? ImportExportTaskType.SQL_FILE_IMPORT
             : ImportExportTaskType.DATA_FILE_IMPORT,
         tableName,
-        sourceFile: fileUrlList[0] || '',
+        sourceFile: selectedFilePaths[0] || '',
       };
     },
   }));
@@ -164,7 +163,7 @@ const ImportExportFile = forwardRef((props: IProps, ref: ForwardedRef<ImportExpo
       )}
       {isImport && (
         <Form.Item>
-          <UploadLocalFile fileUrlListChange={handleFileUrlListChange} accept={uploadLocalFileAccept} />
+          <UploadLocalFile fileUrlListChange={handleSelectedFilesChange} accept={uploadLocalFileAccept} />
         </Form.Item>
       )}
       {isDevelopment && isExport && (

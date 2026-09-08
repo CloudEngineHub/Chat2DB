@@ -263,9 +263,6 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
                 { value: ImportUnmappedTarget.NULL, label: i18n('workspace.importExport.unmappedNull') },
               ]}
             />
-            <Button size="small" onClick={() => fileId && load(fileId)} loading={loading}>
-              {i18n('common.button.refresh')}
-            </Button>
           </div>
           <Table
             className={styles.mappingTable}
