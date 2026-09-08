@@ -13,23 +13,12 @@ async function testSuccessfulRefresh() {
 }
 
 async function testFailedRefreshSettles() {
-  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const result = await Promise.race([
-      runDashboardRefresh(42, async () => {
-        throw new Error('request failed');
-      }),
-      new Promise<never>((_resolve, reject) => {
-        timeoutHandle = setTimeout(() => reject(new Error('dashboard refresh did not settle')), 100);
-      }),
-    ]);
-
-    assert.equal(result, false);
-  } finally {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
-    }
-  }
+  await assert.rejects(
+    runDashboardRefresh(42, async () => {
+      throw new Error('request failed');
+    }),
+    /request failed/,
+  );
 }
 
 async function testMissingDashboardSkipsRequest() {
@@ -52,12 +41,14 @@ async function testZeroDashboardIdIsLoaded() {
   assert.equal(loadedDashboardId, 0);
 }
 
-Promise.all([
-  testSuccessfulRefresh(),
-  testFailedRefreshSettles(),
-  testMissingDashboardSkipsRequest(),
-  testZeroDashboardIdIsLoaded(),
-])
+async function run() {
+  await testSuccessfulRefresh();
+  await testFailedRefreshSettles();
+  await testMissingDashboardSkipsRequest();
+  await testZeroDashboardIdIsLoaded();
+}
+
+run()
   .then(() => {
     console.log('Dashboard refresh tests passed');
   })

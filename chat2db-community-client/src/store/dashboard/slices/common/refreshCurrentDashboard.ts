@@ -8,13 +8,6 @@ export async function runDashboardRefresh(
     return false;
   }
 
-  try {
-    await loadDashboard(currentDashboardId);
-    return true;
-  } catch (error) {
-    // Business and network errors are surfaced by the global response interceptor; keep the
-    // console log so unexpected programming errors are not swallowed silently.
-    console.error(error);
-    return false;
-  }
+  await loadDashboard(currentDashboardId);
+  return true;
 }
