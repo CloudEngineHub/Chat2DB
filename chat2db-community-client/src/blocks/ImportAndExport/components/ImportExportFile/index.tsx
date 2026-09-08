@@ -72,9 +72,9 @@ const ImportExportFile = forwardRef((props: IProps, ref: ForwardedRef<ImportExpo
   // file list changes
   useEffect(() => {
     if (isImport) {
-      setIsReady?.(!!(fileUrlList.length || formValue.fileUrl));
+      setIsReady?.(!!fileUrlList.length);
     }
-  }, [fileUrlList, formValue]);
+  }, [fileUrlList, isImport]);
 
   useEffect(() => {
     if (isExport) {
@@ -116,7 +116,7 @@ const ImportExportFile = forwardRef((props: IProps, ref: ForwardedRef<ImportExpo
             ? ImportExportTaskType.SQL_FILE_IMPORT
             : ImportExportTaskType.DATA_FILE_IMPORT,
         tableName,
-        sourceFile: fileUrlList[0] || formValue.fileUrl || '',
+        sourceFile: fileUrlList[0] || '',
       };
     },
   }));
@@ -167,7 +167,7 @@ const ImportExportFile = forwardRef((props: IProps, ref: ForwardedRef<ImportExpo
           <UploadLocalFile fileUrlListChange={handleFileUrlListChange} accept={uploadLocalFileAccept} />
         </Form.Item>
       )}
-      {isDevelopment && (
+      {isDevelopment && isExport && (
         <Form.Item label="File URL" name="fileUrl">
           <Input autoComplete="off" />
         </Form.Item>
