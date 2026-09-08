@@ -165,23 +165,20 @@ public class MainJFrame extends JFrame {
             }
         }
     }
-    private static void handleNewUri(String uriString) {
-        SwingUtilities.invokeLater(() -> {
-            if (JcefContext.getInstance().getFrame_() != null) {
-                if (uriString != null) {
-                    JcefContext.getInstance().getFrame_().processUri(UriUtil.processInput(uriString));
-                    JcefContext.getInstance().getFrame_().toFront();
-                    JcefContext.getInstance().getFrame_().requestFocus();
-                }
-            } else {
-                log.error("Error: application is not initialized; cannot process URI: {}", uriString);
+    public void handleLaunchRequest(String argument) {
+        if (StringUtils.isNotEmpty(argument)) {
+            try {
+                processUri(UriUtil.processInput(argument));
+            } catch (RuntimeException exception) {
+                log.error("Cannot handle desktop launch argument", exception);
             }
-        });
+        }
+        setVisible(true);
+        setExtendedState(getExtendedState() & ~Frame.ICONIFIED);
+        toFront();
+        requestFocus();
     }
     public void start(String[] args) {
-        if (!OS.isMacintosh() && !SingleInstanceUtil.registerInstance(args, MainJFrame::handleNewUri)) {
-            System.exit(0);
-        }
         UrlProtocolRegistrarUtil.register();
         initPreProcessor();
         initializeCefApp(args);

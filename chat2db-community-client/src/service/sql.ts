@@ -430,7 +430,10 @@ const truncateTable = createRequest<ITableParams, void>('/api/rdb/table/truncate
 
 export interface ICopyTableParams extends ITableParams {
   copyData: boolean;
+  newName: string;
 }
+
+const prepareCopyTable = createRequest<ITableParams, string>('/api/rdb/table/copy/prepare', { method: 'get' });
 
 // Copy table
 const copyTable = createRequest<ICopyTableParams, void>('/api/rdb/table/copy', { method: 'post' });
@@ -506,6 +509,7 @@ const getDataSourceList = createRequest<IPageParams, IPageResponse<IConnectionDe
 
 export default {
   copyTable,
+  prepareCopyTable,
   downloadLargeCellValue,
   getLargeCellValue,
   truncateTable,
