@@ -3,10 +3,13 @@ import { createStyles } from 'antd-style';
 export const useStyles = createStyles(({ css }) => ({
   filters: css`
     display: flex;
-    flex: 1;
+    flex: 0 0 auto;
     flex-wrap: wrap;
     align-items: center;
+    align-content: flex-start;
     gap: 8px;
+    box-sizing: border-box;
+    width: 100%;
     min-width: 0;
   `,
   scopeFilter: css`
