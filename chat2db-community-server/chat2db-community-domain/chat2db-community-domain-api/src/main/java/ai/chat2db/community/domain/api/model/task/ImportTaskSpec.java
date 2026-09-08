@@ -33,5 +33,5 @@ public class ImportTaskSpec implements TaskSpec {
     /** Optional mapping supplied by the import-preview workflow. */
     private List<ImportColumnMapping> columnMappings;
 
-    private String unmappedTarget;
+    private UnmappedTargetStrategy unmappedTarget;
 }

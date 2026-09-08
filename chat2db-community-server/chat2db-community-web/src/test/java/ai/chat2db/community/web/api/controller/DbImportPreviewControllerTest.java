@@ -9,6 +9,7 @@ import ai.chat2db.community.domain.api.model.task.Task;
 import ai.chat2db.community.domain.api.model.task.TaskDownload;
 import ai.chat2db.community.domain.api.model.task.TaskEvent;
 import ai.chat2db.community.domain.api.model.task.TaskQuery;
+import ai.chat2db.community.domain.api.model.task.UnmappedTargetStrategy;
 import ai.chat2db.community.domain.api.service.db.IDbImportPreviewService;
 import ai.chat2db.community.domain.api.service.file.IImportFileRegistry;
 import ai.chat2db.community.domain.api.service.task.TaskService;
@@ -84,6 +85,7 @@ class DbImportPreviewControllerTest {
         CapturingTaskService taskService = new CapturingTaskService();
         CapturingImportFileRegistry importFileRegistry = new CapturingImportFileRegistry(stagedFile);
         DbImportPreviewController controller = new DbImportPreviewController();
+        setField(controller, "importPreviewService", previewService("orders"));
         setField(controller, "taskService", taskService);
         setField(controller, "importFileRegistry", importFileRegistry);
         DbImportPreviewController.ImportExecuteRequest request =
@@ -109,6 +111,73 @@ class DbImportPreviewControllerTest {
     }
 
     @Test
+    void executeUsesCanonicalTargetResolvedByPreview() throws Exception {
+        File stagedFile = tempDirectory.resolve("orders.csv").toFile();
+        Files.writeString(stagedFile.toPath(), "name\nAlice\n");
+        CapturingTaskService taskService = new CapturingTaskService();
+        DbImportPreviewController controller = new DbImportPreviewController();
+        setField(controller, "importPreviewService", previewService("Orders"));
+        setField(controller, "taskService", taskService);
+        setField(controller, "importFileRegistry", new CapturingImportFileRegistry(stagedFile));
+        DbImportPreviewController.ImportExecuteRequest request = new DbImportPreviewController.ImportExecuteRequest();
+        request.setDataSourceId(7L);
+        request.setDatabaseName("app");
+        request.setTableName("`app`.`orders`");
+        request.setFileId("file-1");
+        request.setMappings(List.of(ImportColumnMapping.builder()
+                .sourceColumn("name").targetColumn("name").build()));
+
+        controller.execute(request);
+
+        assertEquals("Orders", taskService.submittedImport.getTarget().getTableName());
+        assertEquals("Import Orders", taskService.submittedImport.getTaskName());
+    }
+
+    @Test
+    void executeRejectsMappingOutsideCurrentPreviewBeforeClaimingFile() throws Exception {
+        File stagedFile = tempDirectory.resolve("orders.csv").toFile();
+        Files.writeString(stagedFile.toPath(), "name\nAlice\n");
+        CapturingImportFileRegistry importFileRegistry = new CapturingImportFileRegistry(stagedFile);
+        DbImportPreviewController controller = new DbImportPreviewController();
+        setField(controller, "importPreviewService", previewService("orders"));
+        setField(controller, "importFileRegistry", importFileRegistry);
+        DbImportPreviewController.ImportExecuteRequest request = new DbImportPreviewController.ImportExecuteRequest();
+        request.setMappings(List.of(ImportColumnMapping.builder()
+                .sourceColumn("missing").targetColumn("name").build()));
+        request.setFileId("file-1");
+
+        assertThrows(IllegalArgumentException.class, () -> controller.execute(request));
+        assertFalse(importFileRegistry.claimed);
+    }
+
+    @Test
+    void executeRejectsNewRequiredColumnBeforeClaimingFile() throws Exception {
+        File stagedFile = tempDirectory.resolve("orders.csv").toFile();
+        Files.writeString(stagedFile.toPath(), "name\nAlice\n");
+        CapturingImportFileRegistry importFileRegistry = new CapturingImportFileRegistry(stagedFile);
+        DbImportPreviewController controller = new DbImportPreviewController();
+        setField(controller, "importPreviewService",
+                (IDbImportPreviewService) (dataSourceId, databaseName, schemaName, tableName, file) ->
+                        ImportPreview.builder()
+                                .sourceColumns(List.of("name"))
+                                .targetTableName("orders")
+                                .targetColumns(List.of(
+                                        ImportPreview.TargetColumn.builder().name("name").build(),
+                                        ImportPreview.TargetColumn.builder().name("required_code")
+                                                .nullable(false).autoIncrement(false).build()))
+                                .build());
+        setField(controller, "importFileRegistry", importFileRegistry);
+        DbImportPreviewController.ImportExecuteRequest request = new DbImportPreviewController.ImportExecuteRequest();
+        request.setMappings(List.of(ImportColumnMapping.builder()
+                .sourceColumn("name").targetColumn("name").build()));
+        request.setUnmappedTarget(UnmappedTargetStrategy.DEFAULT);
+        request.setFileId("file-1");
+
+        assertThrows(IllegalArgumentException.class, () -> controller.execute(request));
+        assertFalse(importFileRegistry.claimed);
+    }
+
+    @Test
     void executeRejectsDuplicateTargetMappingsBeforeClaimingTheFile() throws Exception {
         File stagedFile = tempDirectory.resolve("orders.csv").toFile();
         Files.writeString(stagedFile.toPath(), "name,email\nAlice,a@example.com\n");
@@ -129,6 +198,14 @@ class DbImportPreviewControllerTest {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    private static IDbImportPreviewService previewService(String targetTableName) {
+        return (dataSourceId, databaseName, schemaName, tableName, file) -> ImportPreview.builder()
+                .sourceColumns(List.of("name"))
+                .targetTableName(targetTableName)
+                .targetColumns(List.of(ImportPreview.TargetColumn.builder().name("name").build()))
+                .build();
     }
 
     private static final class CapturingImportFileRegistry implements IImportFileRegistry {

@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Modal, Select, Table, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { TriangleAlert } from 'lucide-react';
-import { SKIP_IMPORT_SOURCE_FIELD } from '@/constants/importExport';
+import { ImportPreviewErrorCode, ImportUnmappedTarget, SKIP_IMPORT_SOURCE_FIELD } from '@/constants/importExport';
 import i18n from '@/i18n';
 import sqlService, { IImportPreview } from '@/service/sql';
 import {
   buildImportMappingRows,
   buildInitialImportMapping,
   getDuplicateImportMappings,
+  getImportPreviewErrorMessage,
   ImportMappingRow,
 } from './mapping';
 import { useStyles } from './style';
@@ -36,8 +37,15 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mapping, setMapping] = useState<Record<string, string>>({});
-  const [unmappedTarget, setUnmappedTarget] = useState<'DEFAULT' | 'NULL'>('DEFAULT');
+  const [unmappedTarget, setUnmappedTarget] = useState(ImportUnmappedTarget.DEFAULT);
   const [executing, setExecuting] = useState(false);
+  const resolveErrorMessage = useCallback(
+    (requestError: unknown) =>
+      getImportPreviewErrorMessage(requestError, i18n('common.text.failure'), {
+        [ImportPreviewErrorCode.DUPLICATE_SOURCE_COLUMNS]: i18n('workspace.importExport.duplicateSourceColumns'),
+      }),
+    [],
+  );
 
   const load = useCallback(
     (stagedFileId: string) => {
@@ -50,11 +58,11 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
           setMapping(buildInitialImportMapping(data.sourceColumns, data.suggestedMapping));
         })
         .catch((e) => {
-          setError(e?.message || i18n('common.text.failure'));
+          setError(resolveErrorMessage(e));
         })
         .finally(() => setLoading(false));
     },
-    [dataSourceId, databaseName, schemaName, tableName],
+    [dataSourceId, databaseName, schemaName, tableName, resolveErrorMessage],
   );
 
   useEffect(() => {
@@ -67,10 +75,10 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
         load(id);
       })
       .catch((e) => {
-        setError(e?.message || i18n('common.text.failure'));
+        setError(resolveErrorMessage(e));
         setLoading(false);
       });
-  }, [file, load]);
+  }, [file, load, resolveErrorMessage]);
 
   const targetOptions = useMemo(() => {
     if (!preview) {
@@ -94,7 +102,8 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
         !c.nullable &&
         !c.autoIncrement &&
         !Object.values(mapping).includes(c.name) &&
-        (unmappedTarget === 'NULL' || (c.defaultValue === null && unmappedTarget === 'DEFAULT')),
+        (unmappedTarget === ImportUnmappedTarget.NULL ||
+          (c.defaultValue === null && unmappedTarget === ImportUnmappedTarget.DEFAULT)),
     );
   }, [preview, mapping, unmappedTarget]);
 
@@ -173,7 +182,7 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
         if (record.targetColumn.autoIncrement) {
           return i18n('workspace.importExport.unmappedAutoIncrement');
         }
-        return unmappedTarget === 'NULL'
+        return unmappedTarget === ImportUnmappedTarget.NULL
           ? i18n('workspace.importExport.unmappedNullValue')
           : i18n('workspace.importExport.unmappedDefaultValue');
       },
@@ -233,7 +242,7 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
         unmappedTarget,
       })
       .then((result) => onSubmitted(result.taskId))
-      .catch((e) => setError(e?.message || i18n('common.text.failure')))
+      .catch((e) => setError(resolveErrorMessage(e)))
       .finally(() => setExecuting(false));
   };
 
@@ -250,8 +259,8 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
               value={unmappedTarget}
               onChange={(v) => setUnmappedTarget(v)}
               options={[
-                { value: 'DEFAULT', label: i18n('workspace.importExport.unmappedDefault') },
-                { value: 'NULL', label: i18n('workspace.importExport.unmappedNull') },
+                { value: ImportUnmappedTarget.DEFAULT, label: i18n('workspace.importExport.unmappedDefault') },
+                { value: ImportUnmappedTarget.NULL, label: i18n('workspace.importExport.unmappedNull') },
               ]}
             />
             <Button size="small" onClick={() => fileId && load(fileId)} loading={loading}>

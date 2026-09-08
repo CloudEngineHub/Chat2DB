@@ -73,6 +73,7 @@ class DbImportPreviewServiceImplTest {
         assertEquals(DATABASE, request.getDatabaseName());
         assertEquals(null, request.getSchemaName());
         assertEquals("orders", request.getTableName());
+        assertEquals("orders", preview.getTargetTableName());
         assertEquals(1, preview.getTargetColumns().size());
         assertEquals("Contact name", preview.getTargetColumns().get(0).getComment());
     }
@@ -126,6 +127,18 @@ class DbImportPreviewServiceImplTest {
         assertEquals(10, preview.getPreviewData().size());
         assertEquals(List.of("row-1"), preview.getPreviewData().get(0));
         assertEquals(List.of("row-10"), preview.getPreviewData().get(9));
+    }
+
+    @Test
+    void previewRejectsDuplicateSourceColumnsIgnoringCase(@TempDir Path directory) throws Exception {
+        Path path = directory.resolve("duplicate-columns.csv");
+        Files.writeString(path, "Name,name\nAlice,Bob\n", StandardCharsets.UTF_8);
+
+        assertThrows(BusinessException.class, () -> new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, DATABASE, null, "orders", path.toFile()));
+
+        assertEquals(0, metaData.tablesRequests);
+        assertEquals(0, metaData.requests.size());
     }
 
     private File csv(Path directory) throws Exception {

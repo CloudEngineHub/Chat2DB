@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
-import { SKIP_IMPORT_SOURCE_FIELD } from '@/constants/importExport';
-import { buildImportMappingRows, buildInitialImportMapping, getDuplicateImportMappings } from './mapping';
+import { ImportPreviewErrorCode, SKIP_IMPORT_SOURCE_FIELD } from '@/constants/importExport';
+import {
+  buildImportMappingRows,
+  buildInitialImportMapping,
+  getDuplicateImportMappings,
+  getImportPreviewErrorMessage,
+} from './mapping';
 
 const mapping = buildInitialImportMapping(
   ['name', 'email', 'extra_column'],
@@ -37,3 +42,20 @@ assert.deepEqual(getDuplicateImportMappings({ ...mapping, extra_column: 'email' 
   },
 });
 assert.deepEqual(getDuplicateImportMappings(mapping), {});
+assert.equal(
+  getImportPreviewErrorMessage({ errorMessage: 'Duplicate source column: name' }, 'Failed'),
+  'Duplicate source column: name',
+);
+assert.equal(getImportPreviewErrorMessage(new Error('Network unavailable'), 'Failed'), 'Network unavailable');
+assert.equal(getImportPreviewErrorMessage({ errorCode: 'SYSTEM_ERROR' }, 'Failed'), 'Failed');
+assert.equal(
+  getImportPreviewErrorMessage(
+    {
+      errorCode: ImportPreviewErrorCode.DUPLICATE_SOURCE_COLUMNS,
+      errorMessage: 'import.preview.duplicateSourceColumns : no message.',
+    },
+    'Failed',
+    { [ImportPreviewErrorCode.DUPLICATE_SOURCE_COLUMNS]: 'The import file contains duplicate source fields' },
+  ),
+  'The import file contains duplicate source fields',
+);

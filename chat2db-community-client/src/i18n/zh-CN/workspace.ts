@@ -304,6 +304,7 @@ export default {
   'workspace.importExport.unmappedDefault': '未映射列：使用默认值',
   'workspace.importExport.unmappedNull': '未映射列：写入 NULL',
   'workspace.importExport.requiredUnmapped': '以下无默认值的 NOT NULL 列未映射',
+  'workspace.importExport.duplicateSourceColumns': '导入文件包含重复的源字段',
   'workspace.ops.activeTransactions': '活动事务',
   'workspace.ops.monitor': '监控',
   'workspace.ops.transactionId': '事务 ID',

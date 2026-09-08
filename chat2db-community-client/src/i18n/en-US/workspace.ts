@@ -314,6 +314,7 @@ export default {
   'workspace.importExport.unmappedDefault': 'Unmapped columns: DEFAULT',
   'workspace.importExport.unmappedNull': 'Unmapped columns: NULL',
   'workspace.importExport.requiredUnmapped': 'NOT NULL columns without a default are unmapped',
+  'workspace.importExport.duplicateSourceColumns': 'The import file contains duplicate source fields',
   'workspace.ops.activeTransactions': 'Active Transactions',
   'workspace.ops.monitor': 'Monitor',
   'workspace.ops.transactionId': 'Transaction ID',

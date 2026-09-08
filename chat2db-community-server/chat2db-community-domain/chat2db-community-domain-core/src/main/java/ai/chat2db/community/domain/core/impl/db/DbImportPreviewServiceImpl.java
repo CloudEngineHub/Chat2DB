@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import java.io.File;
 import java.sql.Connection;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -44,6 +45,7 @@ public class DbImportPreviewServiceImpl implements IDbImportPreviewService {
             String name = StringUtils.defaultIfBlank(header.get(i), "column_" + (i + 1));
             sourceNames.add(name);
         }
+        requireUniqueSourceColumns(sourceNames);
 
         List<List<String>> previewData = new ArrayList<>();
         for (int rowIndex = 1; rowIndex < rows.size(); rowIndex++) {
@@ -54,8 +56,9 @@ public class DbImportPreviewServiceImpl implements IDbImportPreviewService {
             previewData.add(values);
         }
 
-        List<ImportPreview.TargetColumn> targetColumns = targetColumns(dataSourceId, databaseName, schemaName,
+        TableMetadataRequest targetRequest = TrustedMetadataRequestResolver.table(dataSourceId, databaseName, schemaName,
                 tableName);
+        List<ImportPreview.TargetColumn> targetColumns = targetColumns(targetRequest);
         List<ImportColumnMapping> suggested = new ArrayList<>();
         for (String source : sourceNames) {
             targetColumns.stream()
@@ -71,19 +74,17 @@ public class DbImportPreviewServiceImpl implements IDbImportPreviewService {
         return ImportPreview.builder()
                 .sourceColumns(sourceNames)
                 .previewData(previewData)
+                .targetTableName(targetRequest.getTableName())
                 .targetColumns(targetColumns)
                 .suggestedMapping(suggested)
                 .previewLimit(PREVIEW_ROW_LIMIT)
                 .build();
     }
 
-    private static List<ImportPreview.TargetColumn> targetColumns(Long dataSourceId, String databaseName,
-                                                                   String schemaName, String tableName) {
-        TableMetadataRequest trustedRequest = TrustedMetadataRequestResolver.table(dataSourceId, databaseName,
-                schemaName, tableName);
+    private static List<ImportPreview.TargetColumn> targetColumns(TableMetadataRequest target) {
         Connection connection = Chat2DBContext.getConnection();
         return Chat2DBContext.getDbMetaData().columns(connection,
-                        trustedRequest).stream()
+                        target).stream()
                 .map(column -> ImportPreview.TargetColumn.builder()
                         .name(column.getName())
                         .dataType(column.getColumnType())
@@ -93,6 +94,15 @@ public class DbImportPreviewServiceImpl implements IDbImportPreviewService {
                         .comment(column.getComment())
                         .build())
                 .toList();
+    }
+
+    private static void requireUniqueSourceColumns(List<String> sourceColumns) {
+        HashSet<String> names = new HashSet<>();
+        for (String sourceColumn : sourceColumns) {
+            if (!names.add(sourceColumn.toUpperCase(Locale.ROOT))) {
+                throw new BusinessException("import.preview.duplicateSourceColumns", new Object[]{sourceColumn});
+            }
+        }
     }
 
     /**

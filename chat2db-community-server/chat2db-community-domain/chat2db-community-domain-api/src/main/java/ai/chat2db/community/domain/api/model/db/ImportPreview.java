@@ -18,6 +18,8 @@ public class ImportPreview {
 
     private List<List<String>> previewData;
 
+    private String targetTableName;
+
     private List<TargetColumn> targetColumns;
 
     private List<ImportColumnMapping> suggestedMapping;

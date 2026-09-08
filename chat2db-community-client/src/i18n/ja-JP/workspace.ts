@@ -314,6 +314,7 @@ export default {
   'workspace.importExport.unmappedDefault': '未マッピング列: DEFAULT',
   'workspace.importExport.unmappedNull': '未マッピング列: NULL',
   'workspace.importExport.requiredUnmapped': 'デフォルトなしの NOT NULL 列が未マッピングです',
+  'workspace.importExport.duplicateSourceColumns': 'インポートファイルに重複したソースフィールドがあります',
   'workspace.ops.activeTransactions': 'アクティブなトランザクション',
   'workspace.ops.monitor': '監視',
   'workspace.ops.transactionId': 'トランザクション ID',

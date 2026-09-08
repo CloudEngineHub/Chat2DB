@@ -9,6 +9,7 @@ import ai.chat2db.community.domain.api.service.task.TaskService;
 import ai.chat2db.community.domain.api.model.task.ImportTaskSpec;
 import ai.chat2db.community.domain.api.model.task.TaskTargetSnapshot;
 import ai.chat2db.community.domain.api.model.task.TaskType;
+import ai.chat2db.community.domain.api.model.task.UnmappedTargetStrategy;
 import ai.chat2db.community.tools.wrapper.result.DataResult;
 import ai.chat2db.community.web.api.aspect.connection.ConnectionInfoAspect;
 import ai.chat2db.community.web.api.model.request.data.source.DataSourceBaseRequest;
@@ -29,6 +30,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Database-independent, bounded import preview and column mapping. Preview and execution
@@ -78,20 +80,21 @@ public class DbImportPreviewController {
             throw new IllegalArgumentException("At least one source column must be mapped");
         }
         validateMappings(request.getMappings());
-        String strategy = request.getUnmappedTarget() == null ? "DEFAULT"
-                : request.getUnmappedTarget().toUpperCase(Locale.ROOT);
-        if (!"DEFAULT".equals(strategy) && !"NULL".equals(strategy)) {
-            throw new IllegalArgumentException("Unsupported unmapped target strategy");
-        }
+        UnmappedTargetStrategy strategy = request.getUnmappedTarget() == null
+                ? UnmappedTargetStrategy.DEFAULT : request.getUnmappedTarget();
         File file = importFileRegistry.resolve(request.getFileId());
+        ImportPreview currentPreview = importPreviewService.preview(request.getDataSourceId(), request.getDatabaseName(),
+                request.getSchemaName(), request.getTableName(), file);
+        validateMappings(request.getMappings(), currentPreview);
+        validateRequiredColumns(request.getMappings(), currentPreview, strategy);
         importFileRegistry.claim(request.getFileId());
         ImportTaskSpec spec = ImportTaskSpec.builder()
                 .taskType(TaskType.DATA_FILE_IMPORT.name())
-                .taskName("Import " + request.getTableName())
+                .taskName("Import " + currentPreview.getTargetTableName())
                 .target(TaskTargetSnapshot.builder().dataSourceId(request.getDataSourceId())
                         .databaseName(request.getDatabaseName())
                         .schemaName(request.getSchemaName())
-                        .tableName(request.getTableName()).build())
+                        .tableName(currentPreview.getTargetTableName()).build())
                 .sourceFile(file.getAbsolutePath())
                 .importFileId(request.getFileId())
                 .displayFileName(file.getName()).format(extension(file.getName()))
@@ -118,6 +121,37 @@ public class DbImportPreviewController {
                     || !targetColumns.add(normalizeColumn(mapping.getTargetColumn()))) {
                 throw new IllegalArgumentException("Duplicate or invalid import column mapping");
             }
+        }
+    }
+
+    private static void validateMappings(List<ImportColumnMapping> mappings, ImportPreview preview) {
+        Set<String> sourceColumns = preview.getSourceColumns().stream()
+                .map(DbImportPreviewController::normalizeColumn)
+                .collect(Collectors.toSet());
+        Set<String> targetColumns = preview.getTargetColumns().stream()
+                .map(ImportPreview.TargetColumn::getName)
+                .map(DbImportPreviewController::normalizeColumn)
+                .collect(Collectors.toSet());
+        for (ImportColumnMapping mapping : mappings) {
+            if (!sourceColumns.contains(normalizeColumn(mapping.getSourceColumn()))
+                    || !targetColumns.contains(normalizeColumn(mapping.getTargetColumn()))) {
+                throw new IllegalArgumentException("Import column mapping does not match the preview");
+            }
+        }
+    }
+
+    private static void validateRequiredColumns(List<ImportColumnMapping> mappings, ImportPreview preview,
+            UnmappedTargetStrategy strategy) {
+        Set<String> mappedTargets = mappings.stream()
+                .map(ImportColumnMapping::getTargetColumn)
+                .map(DbImportPreviewController::normalizeColumn)
+                .collect(Collectors.toSet());
+        boolean missingRequiredColumn = preview.getTargetColumns().stream()
+                .filter(column -> !column.isNullable() && !column.isAutoIncrement())
+                .filter(column -> !mappedTargets.contains(normalizeColumn(column.getName())))
+                .anyMatch(column -> strategy == UnmappedTargetStrategy.NULL || column.getDefaultValue() == null);
+        if (missingRequiredColumn) {
+            throw new IllegalArgumentException("Required import target column is not mapped");
         }
     }
 
@@ -149,6 +183,6 @@ public class DbImportPreviewController {
 
         private List<ImportColumnMapping> mappings;
 
-        private String unmappedTarget;
+        private UnmappedTargetStrategy unmappedTarget;
     }
 }

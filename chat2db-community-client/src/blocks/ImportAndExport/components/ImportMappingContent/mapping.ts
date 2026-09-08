@@ -23,6 +23,27 @@ export interface IDuplicateImportMapping {
   mappedSource: string;
 }
 
+export const getImportPreviewErrorMessage = (
+  error: unknown,
+  fallback: string,
+  messagesByCode: Record<string, string> = {},
+): string => {
+  if (typeof error === 'string' && error) {
+    return error;
+  }
+  if (!error || typeof error !== 'object') {
+    return fallback;
+  }
+  const value = error as { errorCode?: unknown; errorMessage?: unknown; message?: unknown };
+  if (typeof value.errorMessage === 'string' && value.errorMessage && !value.errorMessage.endsWith(' : no message.')) {
+    return value.errorMessage;
+  }
+  if (typeof value.errorCode === 'string' && messagesByCode[value.errorCode]) {
+    return messagesByCode[value.errorCode];
+  }
+  return typeof value.message === 'string' && value.message ? value.message : fallback;
+};
+
 export const buildInitialImportMapping = (
   sourceColumns: string[],
   suggestedMapping: ISuggestedMapping[],

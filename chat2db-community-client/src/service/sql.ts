@@ -1,4 +1,5 @@
 import createRequest from './base';
+import { ImportUnmappedTarget } from '@/constants/importExport';
 import {
   IPageResponse,
   IPageParams,
@@ -435,11 +436,11 @@ export interface ICopyTableParams extends ITableParams {
 // Copy table
 const copyTable = createRequest<ICopyTableParams, void>('/api/rdb/table/copy', { method: 'post' });
 
-
 /** Database-independent import preview and column mapping. */
 export interface IImportPreview {
   sourceColumns: string[];
   previewData: string[][];
+  targetTableName: string;
   targetColumns: {
     name: string;
     dataType: string;
@@ -474,7 +475,7 @@ const executeImportWithMapping = createRequest<
     tableName: string;
     fileId: string;
     mappings: { sourceColumn: string | null; targetColumn: string }[];
-    unmappedTarget: 'DEFAULT' | 'NULL';
+    unmappedTarget: ImportUnmappedTarget;
   },
   IImportTaskSubmitResult
 >('/api/rdb/import_preview/execute', { method: 'post' });

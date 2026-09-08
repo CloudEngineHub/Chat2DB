@@ -8,6 +8,7 @@ import ai.chat2db.community.domain.api.model.task.ImportTaskSpec;
 import ai.chat2db.community.domain.api.model.task.ImportColumnMapping;
 import ai.chat2db.community.domain.api.model.task.TaskEventCode;
 import ai.chat2db.community.domain.api.model.task.TaskStage;
+import ai.chat2db.community.domain.api.model.task.UnmappedTargetStrategy;
 import ai.chat2db.community.domain.api.service.task.TaskExecutionContext;
 import ai.chat2db.spi.ISqlBuilder;
 import ai.chat2db.spi.IValueProcessor;
@@ -202,7 +203,7 @@ public abstract class BaseExcelImporter extends BaseImporter {
             if (sourceIndex(column.getName()) != null) {
                 return true;
             }
-            return "NULL".equalsIgnoreCase(spec.getUnmappedTarget())
+            return spec.getUnmappedTarget() == UnmappedTargetStrategy.NULL
                     && !Boolean.TRUE.equals(column.getAutoIncrement());
         }
 
@@ -235,7 +236,7 @@ public abstract class BaseExcelImporter extends BaseImporter {
                 } catch (TaskCancelledException e) {
                     throw e;
                 } catch (Exception e) {
-                    taskContext.logError("IMPORT_BATCH_FAILED", "Could not import batch", Map.of(
+                    taskContext.logError(TaskEventCode.IMPORT_BATCH_FAILED.name(), "Could not import batch", Map.of(
                             "statementCount", statementCount,
                             "message", StringUtils.defaultString(e.getMessage())));
                     throw e;

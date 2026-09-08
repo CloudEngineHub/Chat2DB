@@ -7,6 +7,7 @@ import ai.chat2db.community.domain.api.model.task.ArtifactDraft;
 import ai.chat2db.community.domain.api.model.task.ImportColumnMapping;
 import ai.chat2db.community.domain.api.model.task.ImportTaskSpec;
 import ai.chat2db.community.domain.api.model.task.TaskTargetSnapshot;
+import ai.chat2db.community.domain.api.model.task.UnmappedTargetStrategy;
 import ai.chat2db.community.domain.api.service.task.TaskCancelable;
 import ai.chat2db.community.domain.api.service.task.TaskExecutionContext;
 import ai.chat2db.spi.DefaultMetaService;
@@ -86,7 +87,7 @@ class CSVImporterColumnMappingTest {
                 .target(TaskTargetSnapshot.builder().tableName("orders").build())
                 .columnMappings(List.of(ImportColumnMapping.builder()
                         .sourceColumn("Full Name").targetColumn("name").build()))
-                .unmappedTarget("DEFAULT")
+                .unmappedTarget(UnmappedTargetStrategy.DEFAULT)
                 .build();
         RecordingTaskExecutionContext taskContext = new RecordingTaskExecutionContext();
 
@@ -103,6 +104,31 @@ class CSVImporterColumnMappingTest {
             resultSet.next();
             assertEquals("Bob", resultSet.getString("name"));
             assertEquals("NEW", resultSet.getString("status"));
+            assertEquals(null, resultSet.getString("note"));
+        }
+    }
+
+    @Test
+    void nullStrategyWritesNullInsteadOfUsingColumnDefault(@TempDir Path directory) throws Exception {
+        Path input = directory.resolve("orders-null.xlsx");
+        EasyExcel.write(input.toFile())
+                .head(List.of(List.of("Full Name")))
+                .sheet()
+                .doWrite(List.of(List.of("Alice")));
+        ImportTaskSpec spec = ImportTaskSpec.builder()
+                .sourceFile(input.toString())
+                .target(TaskTargetSnapshot.builder().tableName("orders").build())
+                .columnMappings(List.of(ImportColumnMapping.builder()
+                        .sourceColumn("Full Name").targetColumn("name").build()))
+                .unmappedTarget(UnmappedTargetStrategy.NULL)
+                .build();
+
+        new XLSXImporter().doImportData(spec, new RecordingTaskExecutionContext(), columns());
+
+        try (Statement statement = connection.createStatement();
+                ResultSet resultSet = statement.executeQuery("SELECT status, note FROM orders")) {
+            resultSet.next();
+            assertEquals(null, resultSet.getString("status"));
             assertEquals(null, resultSet.getString("note"));
         }
     }

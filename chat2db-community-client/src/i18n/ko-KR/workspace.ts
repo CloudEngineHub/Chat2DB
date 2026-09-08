@@ -312,6 +312,7 @@ export default {
   'workspace.importExport.unmappedDefault': '매핑되지 않은 열: DEFAULT',
   'workspace.importExport.unmappedNull': '매핑되지 않은 열: NULL',
   'workspace.importExport.requiredUnmapped': '기본값이 없는 NOT NULL 열이 매핑되지 않았습니다',
+  'workspace.importExport.duplicateSourceColumns': '가져오기 파일에 중복된 소스 필드가 있습니다',
   'workspace.ops.activeTransactions': '활성 트랜잭션',
   'workspace.ops.monitor': '모니터링',
   'workspace.ops.transactionId': '트랜잭션 ID',
