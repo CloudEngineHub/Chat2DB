@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class ImportFileRegistryTest {
+class ImportFileStagingServiceTest {
 
     @TempDir
     private Path tempDirectory;
@@ -29,17 +29,17 @@ class ImportFileRegistryTest {
     @Test
     void registersResolvesAndReleasesOnlyStagedImportFile() throws Exception {
         System.setProperty("user.home", tempDirectory.toString());
-        ImportFileRegistry registry = new ImportFileRegistry();
+        ImportFileStagingService stagingService = new ImportFileStagingService();
         File source = Files.writeString(tempDirectory.resolve("source.csv"), "id,name\n1,Ada\n").toFile();
 
-        String fileId = registry.register(source, "input.csv");
-        File resolved = registry.resolve(fileId);
+        String fileId = stagingService.stage(source, "input.csv");
+        File resolved = stagingService.resolve(fileId);
 
         assertTrue(resolved.isFile());
         assertEquals(fileId + ".csv", resolved.getName());
         assertTrue(resolved.toPath().normalize().toAbsolutePath().startsWith(tempDirectory));
 
-        registry.release(fileId);
+        stagingService.release(fileId);
 
         assertFalse(Files.exists(resolved.toPath()));
     }
@@ -48,21 +48,21 @@ class ImportFileRegistryTest {
     void rejectsInvalidFileId() {
         System.setProperty("user.home", tempDirectory.toString());
 
-        assertThrows(BusinessException.class, () -> new ImportFileRegistry().resolve("../outside"));
+        assertThrows(BusinessException.class, () -> new ImportFileStagingService().resolve("../outside"));
     }
 
     @Test
     void acceptsEverySupportedWebImportFormat() throws Exception {
         System.setProperty("user.home", tempDirectory.toString());
-        ImportFileRegistry registry = new ImportFileRegistry();
+        ImportFileStagingService stagingService = new ImportFileStagingService();
 
         for (String extension : new String[] {"csv", "xls", "xlsx", "json", "sql"}) {
             File source = Files.writeString(tempDirectory.resolve("source." + extension), "test").toFile();
-            String fileId = registry.register(source, "input." + extension);
-            File resolved = registry.resolve(fileId);
+            String fileId = stagingService.stage(source, "input." + extension);
+            File resolved = stagingService.resolve(fileId);
 
             assertEquals(fileId + "." + extension, resolved.getName());
-            registry.release(fileId);
+            stagingService.release(fileId);
         }
     }
 
@@ -71,6 +71,6 @@ class ImportFileRegistryTest {
         System.setProperty("user.home", tempDirectory.toString());
         File source = Files.writeString(tempDirectory.resolve("source.zip"), "test").toFile();
 
-        assertThrows(BusinessException.class, () -> new ImportFileRegistry().register(source, "input.zip"));
+        assertThrows(BusinessException.class, () -> new ImportFileStagingService().stage(source, "input.zip"));
     }
 }

@@ -1,11 +1,10 @@
 package ai.chat2db.community.web.api.controller;
 
 import ai.chat2db.community.domain.api.model.PageResponse;
-import ai.chat2db.community.domain.api.model.task.ImportTaskSpec;
 import ai.chat2db.community.domain.api.model.task.Task;
 import ai.chat2db.community.domain.api.model.task.TaskEvent;
 import ai.chat2db.community.domain.api.model.task.TaskQuery;
-import ai.chat2db.community.domain.api.service.file.IImportFileRegistry;
+import ai.chat2db.community.domain.api.service.task.IImportTaskSubmissionService;
 import ai.chat2db.community.domain.api.service.task.TaskService;
 import ai.chat2db.community.tools.wrapper.result.ActionResult;
 import ai.chat2db.community.tools.wrapper.result.DataResult;
@@ -19,7 +18,6 @@ import ai.chat2db.community.web.api.model.request.task.TaskIdRequest;
 import ai.chat2db.community.web.api.model.request.task.TaskImportRequest;
 import ai.chat2db.community.web.api.model.response.task.TaskSubmitResponse;
 import jakarta.validation.Valid;
-import org.apache.commons.lang3.StringUtils;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -29,7 +27,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.File;
 import java.util.List;
 
 @ConnectionInfoAspect
@@ -43,14 +40,15 @@ public class TaskController {
 
     private final TaskDownloadWebConverter taskDownloadWebConverter;
 
-    private final IImportFileRegistry importFileRegistry;
+    private final IImportTaskSubmissionService importTaskSubmissionService;
 
     public TaskController(TaskService taskService, TaskWebConverter taskWebConverter,
-            TaskDownloadWebConverter taskDownloadWebConverter, IImportFileRegistry importFileRegistry) {
+            TaskDownloadWebConverter taskDownloadWebConverter,
+            IImportTaskSubmissionService importTaskSubmissionService) {
         this.taskService = taskService;
         this.taskWebConverter = taskWebConverter;
         this.taskDownloadWebConverter = taskDownloadWebConverter;
-        this.importFileRegistry = importFileRegistry;
+        this.importTaskSubmissionService = importTaskSubmissionService;
     }
 
     @PostMapping("/export")
@@ -61,21 +59,9 @@ public class TaskController {
 
     @PostMapping("/import")
     public DataResult<TaskSubmitResponse> submitImport(@Valid @RequestBody TaskImportRequest request) {
-        ImportTaskSpec spec = taskWebConverter.importRequest2spec(request);
-        if (StringUtils.isBlank(request.getFileId())) {
-            return DataResult.of(new TaskSubmitResponse(taskService.submitImport(spec)));
-        }
-
-        File stagedFile = importFileRegistry.resolve(request.getFileId());
-        importFileRegistry.claim(request.getFileId());
-        spec.setSourceFile(stagedFile.getAbsolutePath());
-        spec.setImportFileId(request.getFileId());
-        try {
-            return DataResult.of(new TaskSubmitResponse(taskService.submitImport(spec)));
-        } catch (RuntimeException e) {
-            importFileRegistry.release(request.getFileId());
-            throw e;
-        }
+        Long taskId = importTaskSubmissionService.submit(
+                taskWebConverter.importRequest2spec(request), request.getFileId());
+        return DataResult.of(new TaskSubmitResponse(taskId));
     }
 
     @GetMapping("/list")

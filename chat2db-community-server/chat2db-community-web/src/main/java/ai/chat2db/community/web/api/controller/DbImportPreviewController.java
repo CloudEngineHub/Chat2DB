@@ -1,36 +1,23 @@
 package ai.chat2db.community.web.api.controller;
 
-import ai.chat2db.community.domain.api.service.db.IDbImportPreviewService;
 import ai.chat2db.community.domain.api.model.db.ImportPreview;
-import ai.chat2db.community.domain.api.model.task.ImportColumnMapping;
-import ai.chat2db.community.domain.api.service.file.IImportFileRegistry;
-import ai.chat2db.community.domain.api.service.file.IUploadFileService;
-import ai.chat2db.community.domain.api.service.task.TaskService;
-import ai.chat2db.community.domain.api.model.task.ImportTaskSpec;
-import ai.chat2db.community.domain.api.model.task.TaskTargetSnapshot;
-import ai.chat2db.community.domain.api.model.task.TaskType;
-import ai.chat2db.community.domain.api.model.task.UnmappedTargetStrategy;
+import ai.chat2db.community.domain.api.service.db.IDbImportPreviewService;
+import ai.chat2db.community.domain.api.service.db.IDbMappedImportService;
+import ai.chat2db.community.domain.api.service.file.IImportFileStagingService;
 import ai.chat2db.community.tools.wrapper.result.DataResult;
+import ai.chat2db.community.web.api.adapter.db.ImportFileUploadAdapter;
 import ai.chat2db.community.web.api.aspect.connection.ConnectionInfoAspect;
-import ai.chat2db.community.web.api.model.request.data.source.DataSourceBaseRequest;
+import ai.chat2db.community.web.api.converter.db.DbImportWebConverter;
+import ai.chat2db.community.web.api.model.request.db.ImportExecuteRequest;
+import ai.chat2db.community.web.api.model.request.db.ImportPreviewRequest;
 import ai.chat2db.community.web.api.model.response.task.TaskSubmitResponse;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import lombok.Data;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-
-import java.io.File;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Database-independent, bounded import preview and column mapping. Preview and execution
@@ -41,148 +28,41 @@ import java.util.stream.Collectors;
 @RestController
 public class DbImportPreviewController {
 
-    @Autowired
-    private IDbImportPreviewService importPreviewService;
+    private final IDbImportPreviewService importPreviewService;
 
-    @Autowired
-    private TaskService taskService;
+    private final IDbMappedImportService mappedImportService;
 
-    @Autowired
-    private IUploadFileService<MultipartFile> uploadFileService;
+    private final IImportFileStagingService importFileStagingService;
 
-    @Autowired
-    private IImportFileRegistry importFileRegistry;
+    private final DbImportWebConverter importWebConverter;
+
+    private final ImportFileUploadAdapter importFileUploadAdapter;
+
+    public DbImportPreviewController(IDbImportPreviewService importPreviewService,
+            IDbMappedImportService mappedImportService,
+            IImportFileStagingService importFileStagingService, DbImportWebConverter importWebConverter,
+            ImportFileUploadAdapter importFileUploadAdapter) {
+        this.importPreviewService = importPreviewService;
+        this.mappedImportService = mappedImportService;
+        this.importFileStagingService = importFileStagingService;
+        this.importWebConverter = importWebConverter;
+        this.importFileUploadAdapter = importFileUploadAdapter;
+    }
 
     @PostMapping("/upload")
     public DataResult<String> upload(@RequestParam("file") MultipartFile file) {
-        File temp = null;
-        try {
-            temp = uploadFileService.transferToTempFile(file);
-            return DataResult.of(importFileRegistry.register(temp, file.getOriginalFilename()));
-        } catch (java.io.IOException e) {
-            throw new IllegalArgumentException("Could not store import file", e);
-        } finally {
-            if (temp != null && temp.isFile()) {
-                temp.delete();
-            }
-        }
+        return DataResult.of(importFileUploadAdapter.stage(file));
     }
 
     @PostMapping("/preview")
     public DataResult<ImportPreview> preview(@Valid @RequestBody ImportPreviewRequest request) {
         return DataResult.of(importPreviewService.preview(request.getDataSourceId(), request.getDatabaseName(),
-                request.getSchemaName(), request.getTableName(), importFileRegistry.resolve(request.getFileId())));
+                request.getSchemaName(), request.getTableName(), importFileStagingService.resolve(request.getFileId())));
     }
 
     @PostMapping("/execute")
     public DataResult<TaskSubmitResponse> execute(@Valid @RequestBody ImportExecuteRequest request) {
-        if (request.getMappings() == null || request.getMappings().isEmpty()) {
-            throw new IllegalArgumentException("At least one source column must be mapped");
-        }
-        validateMappings(request.getMappings());
-        UnmappedTargetStrategy strategy = request.getUnmappedTarget() == null
-                ? UnmappedTargetStrategy.DEFAULT : request.getUnmappedTarget();
-        File file = importFileRegistry.resolve(request.getFileId());
-        ImportPreview currentPreview = importPreviewService.preview(request.getDataSourceId(), request.getDatabaseName(),
-                request.getSchemaName(), request.getTableName(), file);
-        validateMappings(request.getMappings(), currentPreview);
-        validateRequiredColumns(request.getMappings(), currentPreview, strategy);
-        importFileRegistry.claim(request.getFileId());
-        ImportTaskSpec spec = ImportTaskSpec.builder()
-                .taskType(TaskType.DATA_FILE_IMPORT.name())
-                .taskName("Import " + currentPreview.getTargetTableName())
-                .target(TaskTargetSnapshot.builder().dataSourceId(request.getDataSourceId())
-                        .databaseName(request.getDatabaseName())
-                        .schemaName(request.getSchemaName())
-                        .tableName(currentPreview.getTargetTableName()).build())
-                .sourceFile(file.getAbsolutePath())
-                .importFileId(request.getFileId())
-                .displayFileName(file.getName()).format(extension(file.getName()))
-                .columnMappings(request.getMappings())
-                .unmappedTarget(strategy).build();
-        try {
-            return DataResult.of(new TaskSubmitResponse(taskService.submitImport(spec)));
-        } catch (RuntimeException e) {
-            importFileRegistry.release(request.getFileId());
-            throw e;
-        }
-    }
-
-    private static String extension(String filePath) {
-        int dot = filePath.lastIndexOf('.');
-        return dot < 0 ? "CSV" : filePath.substring(dot + 1).toUpperCase();
-    }
-
-    private static void validateMappings(List<ImportColumnMapping> mappings) {
-        Set<String> sourceColumns = new HashSet<>();
-        Set<String> targetColumns = new HashSet<>();
-        for (ImportColumnMapping mapping : mappings) {
-            if (mapping == null || !sourceColumns.add(normalizeColumn(mapping.getSourceColumn()))
-                    || !targetColumns.add(normalizeColumn(mapping.getTargetColumn()))) {
-                throw new IllegalArgumentException("Duplicate or invalid import column mapping");
-            }
-        }
-    }
-
-    private static void validateMappings(List<ImportColumnMapping> mappings, ImportPreview preview) {
-        Set<String> sourceColumns = preview.getSourceColumns().stream()
-                .map(DbImportPreviewController::normalizeColumn)
-                .collect(Collectors.toSet());
-        Set<String> targetColumns = preview.getTargetColumns().stream()
-                .map(ImportPreview.TargetColumn::getName)
-                .map(DbImportPreviewController::normalizeColumn)
-                .collect(Collectors.toSet());
-        for (ImportColumnMapping mapping : mappings) {
-            if (!sourceColumns.contains(normalizeColumn(mapping.getSourceColumn()))
-                    || !targetColumns.contains(normalizeColumn(mapping.getTargetColumn()))) {
-                throw new IllegalArgumentException("Import column mapping does not match the preview");
-            }
-        }
-    }
-
-    private static void validateRequiredColumns(List<ImportColumnMapping> mappings, ImportPreview preview,
-            UnmappedTargetStrategy strategy) {
-        Set<String> mappedTargets = mappings.stream()
-                .map(ImportColumnMapping::getTargetColumn)
-                .map(DbImportPreviewController::normalizeColumn)
-                .collect(Collectors.toSet());
-        boolean missingRequiredColumn = preview.getTargetColumns().stream()
-                .filter(column -> !column.isNullable() && !column.isAutoIncrement())
-                .filter(column -> !mappedTargets.contains(normalizeColumn(column.getName())))
-                .anyMatch(column -> strategy == UnmappedTargetStrategy.NULL || column.getDefaultValue() == null);
-        if (missingRequiredColumn) {
-            throw new IllegalArgumentException("Required import target column is not mapped");
-        }
-    }
-
-    private static String normalizeColumn(String columnName) {
-        if (columnName == null || columnName.isBlank()) {
-            throw new IllegalArgumentException("Import column mapping must not be blank");
-        }
-        return columnName.toUpperCase(Locale.ROOT);
-    }
-
-    @Data
-    public static class ImportPreviewRequest extends DataSourceBaseRequest {
-
-        @NotBlank
-        private String tableName;
-
-        @NotBlank
-        private String fileId;
-    }
-
-    @Data
-    public static class ImportExecuteRequest extends DataSourceBaseRequest {
-
-        @NotBlank
-        private String tableName;
-
-        @NotBlank
-        private String fileId;
-
-        private List<ImportColumnMapping> mappings;
-
-        private UnmappedTargetStrategy unmappedTarget;
+        return DataResult.of(new TaskSubmitResponse(
+                mappedImportService.submit(importWebConverter.toMappedImportExecution(request))));
     }
 }

@@ -7,7 +7,7 @@ import ai.chat2db.community.domain.api.model.task.TaskExecutionException;
 import ai.chat2db.community.domain.api.model.task.TaskFileFormat;
 import ai.chat2db.community.domain.api.model.task.TaskStage;
 import ai.chat2db.community.domain.api.model.task.TaskType;
-import ai.chat2db.community.domain.api.service.file.IImportFileRegistry;
+import ai.chat2db.community.domain.api.service.file.IImportFileStagingService;
 import ai.chat2db.community.domain.api.service.task.TaskExecutionContext;
 import ai.chat2db.community.domain.api.service.task.TaskExecutor;
 import ai.chat2db.community.domain.core.impl.task.imports.ImportFactory;
@@ -16,10 +16,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class SqlFileImportTaskExecutor implements TaskExecutor<ImportTaskSpec> {
 
-    private final IImportFileRegistry importFileRegistry;
+    private final IImportFileStagingService importFileStagingService;
 
-    public SqlFileImportTaskExecutor(IImportFileRegistry importFileRegistry) {
-        this.importFileRegistry = importFileRegistry;
+    public SqlFileImportTaskExecutor(IImportFileStagingService importFileStagingService) {
+        this.importFileStagingService = importFileStagingService;
     }
 
     @Override
@@ -51,7 +51,7 @@ public class SqlFileImportTaskExecutor implements TaskExecutor<ImportTaskSpec> {
                     "Could not import SQL file", e);
         } finally {
             if (spec.getImportFileId() != null) {
-                importFileRegistry.release(spec.getImportFileId());
+                importFileStagingService.release(spec.getImportFileId());
             }
         }
     }

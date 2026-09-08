@@ -2,7 +2,7 @@ package ai.chat2db.community.domain.core.impl.task.executor;
 
 import ai.chat2db.community.domain.api.model.task.ImportTaskSpec;
 import ai.chat2db.community.domain.api.model.task.TaskExecutionException;
-import ai.chat2db.community.domain.api.service.file.IImportFileRegistry;
+import ai.chat2db.community.domain.api.service.file.IImportFileStagingService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -18,7 +18,7 @@ class SqlFileImportTaskExecutorTest {
     @Test
     void releasesStagedFileWhenExecutionFails(@TempDir Path tempDirectory) throws Exception {
         File source = Files.writeString(tempDirectory.resolve("input.sql"), "select 1").toFile();
-        RecordingImportFileRegistry registry = new RecordingImportFileRegistry();
+        RecordingImportFileStagingService stagingService = new RecordingImportFileStagingService();
         ImportTaskSpec spec = ImportTaskSpec.builder()
                 .sourceFile(source.getAbsolutePath())
                 .format("JSON")
@@ -26,17 +26,17 @@ class SqlFileImportTaskExecutorTest {
                 .build();
 
         assertThrows(TaskExecutionException.class,
-                () -> new SqlFileImportTaskExecutor(registry).execute(spec, null));
+                () -> new SqlFileImportTaskExecutor(stagingService).execute(spec, null));
 
-        assertEquals("staged-file-id", registry.releasedFileId);
+        assertEquals("staged-file-id", stagingService.releasedFileId);
     }
 
-    private static final class RecordingImportFileRegistry implements IImportFileRegistry {
+    private static final class RecordingImportFileStagingService implements IImportFileStagingService {
 
         private String releasedFileId;
 
         @Override
-        public String register(File file, String originalFileName) {
+        public String stage(File file, String originalFileName) {
             throw new UnsupportedOperationException();
         }
 
@@ -46,7 +46,7 @@ class SqlFileImportTaskExecutorTest {
         }
 
         @Override
-        public void claim(String fileId) {
+        public void claimForTask(String fileId) {
             throw new UnsupportedOperationException();
         }
 

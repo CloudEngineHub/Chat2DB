@@ -1,17 +1,18 @@
 package ai.chat2db.community.domain.core.impl.db;
 
-import java.util.List;
-import java.util.Objects;
-import java.sql.Connection;
-
 import ai.chat2db.community.domain.api.model.metadata.Table;
 import ai.chat2db.community.tools.exception.BusinessException;
 import ai.chat2db.spi.IDbMetaData;
+import ai.chat2db.spi.ISQLIdentifierProcessor;
 import ai.chat2db.spi.model.datasource.ConnectInfo;
 import ai.chat2db.spi.model.request.TableMetadataRequest;
 import ai.chat2db.spi.model.request.TablesRequest;
 import ai.chat2db.spi.sql.Chat2DBContext;
 import org.apache.commons.lang3.StringUtils;
+
+import java.sql.Connection;
+import java.util.List;
+import java.util.Objects;
 
 final class TrustedMetadataRequestResolver {
 
@@ -33,7 +34,7 @@ final class TrustedMetadataRequestResolver {
         requireMatchesTrusted(requestDatabaseName, trustedDatabaseName);
         requireMatchesTrusted(requestSchemaName, trustedSchemaName);
 
-        String requestedTableName = StringUtils.trimToNull(requestTableName);
+        String requestedTableName = normalizeIdentifier(requestTableName);
         if (requestedTableName == null) {
             throw new BusinessException("common.paramError");
         }
@@ -61,26 +62,18 @@ final class TrustedMetadataRequestResolver {
         throw new BusinessException("common.paramError");
     }
 
-    private static String stripIdentifierQuote(String identifier) {
-        if (identifier == null || identifier.length() < 2) {
-            return identifier;
-        }
-        if ((identifier.startsWith("\"") && identifier.endsWith("\""))
-                || (identifier.startsWith("`") && identifier.endsWith("`"))
-                || (identifier.startsWith("'") && identifier.endsWith("'"))
-                || (identifier.startsWith("[") && identifier.endsWith("]"))) {
-            return identifier.substring(1, identifier.length() - 1);
-        }
-        return identifier;
-    }
-
     private static void requireMatchesTrusted(String requestValue, String trustedValue) {
-        String normalizedRequest = stripIdentifierQuote(StringUtils.trimToNull(requestValue));
+        String normalizedRequest = normalizeIdentifier(requestValue);
         if (StringUtils.isBlank(normalizedRequest)) {
             return;
         }
         if (!Objects.equals(normalizedRequest, trustedValue)) {
             throw new BusinessException("common.permissionDenied");
         }
+    }
+
+    private static String normalizeIdentifier(String identifier) {
+        ISQLIdentifierProcessor identifierProcessor = Chat2DBContext.getDbMetaData().getSQLIdentifierProcessor();
+        return identifierProcessor.removeIdentifierQuote(StringUtils.trimToNull(identifier));
     }
 }

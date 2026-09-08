@@ -20,8 +20,10 @@ import ai.chat2db.community.domain.api.model.metadata.TableColumn;
 import ai.chat2db.community.domain.api.model.metadata.Table;
 import ai.chat2db.community.tools.exception.BusinessException;
 import ai.chat2db.spi.DefaultMetaService;
+import ai.chat2db.spi.DefaultSQLIdentifierProcessor;
 import ai.chat2db.spi.IDbMetaData;
 import ai.chat2db.spi.IPlugin;
+import ai.chat2db.spi.ISQLIdentifierProcessor;
 import ai.chat2db.spi.model.datasource.ConnectInfo;
 import ai.chat2db.spi.model.request.TableMetadataRequest;
 import ai.chat2db.spi.model.request.TablesRequest;
@@ -87,6 +89,23 @@ class DbImportPreviewServiceImplTest {
 
         assertEquals("order.items", preview.getTargetTableName());
         assertEquals("order.items", metaData.requests.get(0).getTableName());
+    }
+
+    @Test
+    void previewUsesDialectIdentifierProcessor(@TempDir Path directory) throws Exception {
+        metaData.identifierProcessor = new DefaultSQLIdentifierProcessor() {
+            @Override
+            public String removeIdentifierQuote(String identifier) {
+                return identifier != null && identifier.startsWith("<") && identifier.endsWith(">")
+                        ? identifier.substring(1, identifier.length() - 1) : identifier;
+            }
+        };
+
+        ImportPreview preview = new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, "<app>", null, "<orders>", csv(directory));
+
+        assertEquals("orders", preview.getTargetTableName());
+        assertEquals("orders", metaData.requests.get(0).getTableName());
     }
 
     @Test
@@ -200,6 +219,12 @@ class DbImportPreviewServiceImplTest {
         private final List<TableMetadataRequest> requests = new ArrayList<>();
         private int tablesRequests;
         private String tableName = "orders";
+        private ISQLIdentifierProcessor identifierProcessor = new DefaultSQLIdentifierProcessor();
+
+        @Override
+        public ISQLIdentifierProcessor getSQLIdentifierProcessor() {
+            return identifierProcessor;
+        }
 
         @Override
         public List<Table> tables(Connection connection, TablesRequest request) {
