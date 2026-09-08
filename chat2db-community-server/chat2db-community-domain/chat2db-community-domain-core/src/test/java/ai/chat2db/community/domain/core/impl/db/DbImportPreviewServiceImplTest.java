@@ -63,10 +63,10 @@ class DbImportPreviewServiceImplTest {
     }
 
     @Test
-    void previewCanonicalizesQualifiedTableWithoutLosingTargetColumns(@TempDir Path directory)
+    void previewCanonicalizesTableCaseWithoutLosingTargetColumns(@TempDir Path directory)
             throws Exception {
         ImportPreview preview = new DbImportPreviewServiceImpl()
-                .preview(DATA_SOURCE_ID, DATABASE, null, "`app`.`orders`", csv(directory));
+                .preview(DATA_SOURCE_ID, DATABASE, null, "ORDERS", csv(directory));
 
         assertEquals(1, metaData.requests.size());
         TableMetadataRequest request = metaData.requests.get(0);
@@ -76,6 +76,17 @@ class DbImportPreviewServiceImplTest {
         assertEquals("orders", preview.getTargetTableName());
         assertEquals(1, preview.getTargetColumns().size());
         assertEquals("Contact name", preview.getTargetColumns().get(0).getComment());
+    }
+
+    @Test
+    void previewAcceptsPunctuationInARealTableName(@TempDir Path directory) throws Exception {
+        metaData.tableName = "order.items";
+
+        ImportPreview preview = new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, DATABASE, null, "order.items", csv(directory));
+
+        assertEquals("order.items", preview.getTargetTableName());
+        assertEquals("order.items", metaData.requests.get(0).getTableName());
     }
 
     @Test
@@ -102,11 +113,11 @@ class DbImportPreviewServiceImplTest {
     }
 
     @Test
-    void previewRejectsWildcardTableBeforeMetadataLookup(@TempDir Path directory) throws Exception {
+    void previewRejectsTableNameThatDoesNotExist(@TempDir Path directory) throws Exception {
         assertThrows(BusinessException.class, () -> new DbImportPreviewServiceImpl()
                 .preview(DATA_SOURCE_ID, DATABASE, null, "orders%", csv(directory)));
 
-        assertEquals(0, metaData.tablesRequests);
+        assertEquals(1, metaData.tablesRequests);
         assertEquals(0, metaData.requests.size());
     }
 
@@ -188,12 +199,13 @@ class DbImportPreviewServiceImplTest {
 
         private final List<TableMetadataRequest> requests = new ArrayList<>();
         private int tablesRequests;
+        private String tableName = "orders";
 
         @Override
         public List<Table> tables(Connection connection, TablesRequest request) {
             tablesRequests++;
             return List.of(Table.builder().databaseName(request.getDatabaseName())
-                    .schemaName(request.getSchemaName()).name("orders").build());
+                    .schemaName(request.getSchemaName()).name(tableName).build());
         }
 
         @Override
