@@ -164,8 +164,7 @@ public class LocalWorkspaceStorage implements IWorkspaceStorage {
     public Long createOperationLog(OperationLog request) {
         request.setGmtCreate(DateUtil.format(new Date(), DatePattern.NORM_DATETIME_PATTERN));
         request.setGmtModified(DateUtil.format(new Date(), DatePattern.NORM_DATETIME_PATTERN));
-        request.setOperationType(StringUtils.defaultIfBlank(request.getOperationType(),
-                OperationTypeEnum.SQL_EXECUTE.name()));
+        request.setOperationType(OperationTypeEnum.SQL_EXECUTE.name());
         return OperationLogStorage.INSTANCE.save(request);
     }
 
@@ -242,14 +241,14 @@ public class LocalWorkspaceStorage implements IWorkspaceStorage {
                 && !Objects.equals(request.getSchemaName(), operationLog.getSchemaName())) {
             return false;
         }
-        if (StringUtils.isNotBlank(request.getOperationType())) {
-            // Logs saved before operationType existed all come from the execution pipeline,
-            // so default them to SQL_EXECUTE instead of hiding them from the execution panel.
-            String operationType = StringUtils.defaultIfBlank(operationLog.getOperationType(),
-                    OperationTypeEnum.SQL_EXECUTE.name());
-            if (!Objects.equals(request.getOperationType(), operationType)) {
-                return false;
-            }
+        String sqlExecute = OperationTypeEnum.SQL_EXECUTE.name();
+        if (StringUtils.isNotBlank(request.getOperationType())
+                && !Objects.equals(sqlExecute, request.getOperationType())) {
+            return false;
+        }
+        // Logs saved before operationType existed all came from the execution pipeline.
+        if (!Objects.equals(sqlExecute, StringUtils.defaultIfBlank(operationLog.getOperationType(), sqlExecute))) {
+            return false;
         }
         String searchKey = StringUtils.trimToNull(request.getSearchKey());
         return searchKey == null || StringUtils.containsIgnoreCase(operationLog.getDdl(), searchKey);

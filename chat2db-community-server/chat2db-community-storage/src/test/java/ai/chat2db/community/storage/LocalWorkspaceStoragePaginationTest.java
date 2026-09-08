@@ -156,11 +156,11 @@ class LocalWorkspaceStoragePaginationTest {
     }
 
     @Test
-    void operationLogListSeparatesSqlExecuteAndSqlAuditStreamsBeforePagination() {
+    void operationLogListReturnsOnlySqlExecuteRecordsBeforePagination() {
         Long firstExecuteId = saveOperationLog(1L, "sales", "public", "select 1", "SQL_EXECUTE");
         Long secondExecuteId = saveOperationLog(1L, "sales", "public", "select 2", "SQL_EXECUTE");
-        saveOperationLog(1L, "sales", "public", "select 3", "SQL_AUDIT");
-        saveOperationLog(1L, "sales", "public", "select 4", "SQL_AUDIT");
+        saveOperationLog(1L, "sales", "public", "select 3", "UNSUPPORTED");
+        saveOperationLog(1L, "sales", "public", "select 4", "UNSUPPORTED");
 
         OpsOperationLogPageQueryRequest request = new OpsOperationLogPageQueryRequest();
         request.setPageNo(1);
@@ -183,25 +183,16 @@ class LocalWorkspaceStoragePaginationTest {
         assertFalse(executePage2.getHasNextPage());
 
         request.setPageNo(1);
-        request.setOperationType("SQL_AUDIT");
-        PageResponse<OperationLog> auditPage1 = workspaceStorage.operationLogList(request);
-        assertEquals(1, auditPage1.getData().size());
-        assertEquals("select 4", auditPage1.getData().get(0).getDdl());
-        assertEquals(2L, auditPage1.getTotal());
-        assertTrue(auditPage1.getHasNextPage());
-
-        request.setPageNo(2);
-        PageResponse<OperationLog> auditPage2 = workspaceStorage.operationLogList(request);
-        assertEquals(1, auditPage2.getData().size());
-        assertEquals("select 3", auditPage2.getData().get(0).getDdl());
-        assertEquals(2L, auditPage2.getTotal());
-        assertFalse(auditPage2.getHasNextPage());
+        request.setOperationType("UNSUPPORTED");
+        PageResponse<OperationLog> unsupportedPage = workspaceStorage.operationLogList(request);
+        assertTrue(unsupportedPage.getData().isEmpty());
+        assertEquals(0L, unsupportedPage.getTotal());
     }
 
     @Test
     void operationLogListTreatsLegacyUntypedLogsAsSqlExecute() {
         Long legacyId = saveOperationLog(1L, "sales", "public", "select 0");
-        saveOperationLog(1L, "sales", "public", "select 9", "SQL_AUDIT");
+        saveOperationLog(1L, "sales", "public", "select 9", "UNSUPPORTED");
 
         OpsOperationLogPageQueryRequest request = new OpsOperationLogPageQueryRequest();
         request.setPageNo(1);
@@ -212,11 +203,17 @@ class LocalWorkspaceStoragePaginationTest {
         assertEquals(legacyId, executePage.getData().get(0).getId());
         assertEquals(1L, executePage.getTotal());
 
-        request.setOperationType("SQL_AUDIT");
-        PageResponse<OperationLog> auditPage = workspaceStorage.operationLogList(request);
-        assertEquals(1, auditPage.getData().size());
-        assertEquals("select 9", auditPage.getData().get(0).getDdl());
-        assertEquals(1L, auditPage.getTotal());
+    }
+
+    @Test
+    void createOperationLogAlwaysClassifiesLocalRecordsAsSqlExecute() {
+        OperationLog operationLog = new OperationLog();
+        operationLog.setDdl("select 1");
+        operationLog.setOperationType("UNSUPPORTED");
+
+        Long id = workspaceStorage.createOperationLog(operationLog);
+
+        assertEquals("SQL_EXECUTE", OperationLogStorage.INSTANCE.getById(id).getOperationType());
     }
 
     @Test
