@@ -13,13 +13,15 @@ import {
   ImportMappingRow,
 } from './mapping';
 import { useStyles } from './style';
+import type { FileUrl } from '@/components/UploadLocalFile';
+import { stageSelectedImportFile } from './fileStaging';
 
 interface IProps {
   dataSourceId: number;
   databaseName: string;
   schemaName?: string;
   tableName: string;
-  file: File;
+  file: FileUrl;
   onSubmitted: (taskId: number) => void;
 }
 
@@ -68,8 +70,7 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
   useEffect(() => {
     setLoading(true);
     setError(null);
-    sqlService
-      .uploadImportFile({ file })
+    stageSelectedImportFile(file, sqlService.uploadImportFile, sqlService.stageDesktopImportFile)
       .then((id) => {
         setFileId(id);
         load(id);

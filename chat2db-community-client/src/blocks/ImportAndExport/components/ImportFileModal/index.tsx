@@ -18,13 +18,14 @@ import {
   IMPORT_TARGET_TABLE_REFRESH_EVENT,
   shouldRefreshImportTargetTable,
 } from '@/store/importExport/taskCenterUtils';
+import type { FileUrl } from '@/components/UploadLocalFile';
 
 interface IProps {
   className?: string;
 }
 
-const isPreviewFile = (file?: File) => {
-  const name = file?.name.toLowerCase();
+const isPreviewFile = (file?: FileUrl) => {
+  const name = (file?.fileName || file?.file?.name)?.toLowerCase();
   return name?.endsWith('.csv') || name?.endsWith('.xls') || name?.endsWith('.xlsx');
 };
 
@@ -34,7 +35,7 @@ export default memo<IProps>((_props) => {
   const previousTaskDetailsRef = useRef<ImportExportTaskDetails>();
   const [taskId, setTaskId] = useState<number>();
   const [taskDetails, setTaskDetails] = useState<ImportExportTaskDetails>();
-  const [importFile, setImportFile] = useState<File>();
+  const [importFile, setImportFile] = useState<FileUrl>();
 
   const { importExportDataBoundInfo, setImportExportDataBoundInfo, getTaskList } = useImportExportStore((state) => {
     return {
@@ -60,8 +61,8 @@ export default memo<IProps>((_props) => {
     if ('sourceFile' in params) {
       let importParams = params;
       if (!isDesktop) {
-        if (!importFile) return;
-        importParams = await prepareWebImportParams(importParams, importFile, sqlService.uploadImportFile);
+        if (!importFile?.file) return;
+        importParams = await prepareWebImportParams(importParams, importFile.file, sqlService.uploadImportFile);
       }
       response = await importExportServices.submitImport(importParams);
     } else {
@@ -71,7 +72,7 @@ export default memo<IProps>((_props) => {
     getTaskList();
   };
 
-  const handleImportFileChange = (file?: File) => {
+  const handleImportFileChange = (file?: FileUrl) => {
     setImportFile(file);
   };
 
@@ -147,7 +148,6 @@ export default memo<IProps>((_props) => {
 
   const importPreviewContext =
     importExportDataBoundInfo?.type === ImportExportType.IMPORT &&
-    !isDesktop &&
     isPreviewFile(importFile) &&
     importExportDataBoundInfo.dataSourceId != null &&
     importExportDataBoundInfo.databaseName != null &&
