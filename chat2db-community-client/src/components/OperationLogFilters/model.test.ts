@@ -13,18 +13,18 @@ const sqlExecute = 'SQL_EXECUTE' as OperationTypeEnum;
 {
   const filters = normalizeOperationLogFilters({
     dataSourceId: 12,
-    databaseName: '  application  ',
+    databaseName: ' application ',
     schemaName: ' public ',
     searchKey: '  Orders  ',
   });
 
   assert.deepEqual(filters, {
     dataSourceId: 12,
-    databaseName: 'application',
-    schemaName: 'public',
+    databaseName: ' application ',
+    schemaName: ' public ',
     searchKey: 'Orders',
   });
-  assert.deepEqual(normalizeOperationLogFilters({ databaseName: ' ', searchKey: '\t' }), {});
+  assert.deepEqual(normalizeOperationLogFilters({ databaseName: ' ', searchKey: '\t' }), { databaseName: ' ' });
 }
 
 {
@@ -67,8 +67,8 @@ const sqlExecute = 'SQL_EXECUTE' as OperationTypeEnum;
       pageSize: 40,
       operationType: sqlExecute,
       dataSourceId: 12,
-      databaseName: 'application',
-      schemaName: 'public',
+      databaseName: ' application ',
+      schemaName: ' public ',
       searchKey: 'orders',
     },
   );

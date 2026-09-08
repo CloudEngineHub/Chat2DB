@@ -2,7 +2,6 @@ package ai.chat2db.community.storage;
 
 import ai.chat2db.community.domain.api.model.PageResponse;
 import ai.chat2db.community.domain.api.enums.StorageTypeEnum;
-import ai.chat2db.community.domain.api.enums.operation.OperationTypeEnum;
 import ai.chat2db.community.domain.api.model.datasource.DataSource;
 import ai.chat2db.community.domain.api.model.datasource.DataSourceIdentityColorUtils;
 import ai.chat2db.community.domain.api.model.datasource.DataSourceNamespace;
@@ -164,7 +163,6 @@ public class LocalWorkspaceStorage implements IWorkspaceStorage {
     public Long createOperationLog(OperationLog request) {
         request.setGmtCreate(DateUtil.format(new Date(), DatePattern.NORM_DATETIME_PATTERN));
         request.setGmtModified(DateUtil.format(new Date(), DatePattern.NORM_DATETIME_PATTERN));
-        request.setOperationType(OperationTypeEnum.SQL_EXECUTE.name());
         return OperationLogStorage.INSTANCE.save(request);
     }
 
@@ -239,15 +237,6 @@ public class LocalWorkspaceStorage implements IWorkspaceStorage {
         }
         if (StringUtils.isNotBlank(request.getSchemaName())
                 && !Objects.equals(request.getSchemaName(), operationLog.getSchemaName())) {
-            return false;
-        }
-        String sqlExecute = OperationTypeEnum.SQL_EXECUTE.name();
-        if (StringUtils.isNotBlank(request.getOperationType())
-                && !Objects.equals(sqlExecute, request.getOperationType())) {
-            return false;
-        }
-        // Logs saved before operationType existed all came from the execution pipeline.
-        if (!Objects.equals(sqlExecute, StringUtils.defaultIfBlank(operationLog.getOperationType(), sqlExecute))) {
             return false;
         }
         String searchKey = StringUtils.trimToNull(request.getSearchKey());

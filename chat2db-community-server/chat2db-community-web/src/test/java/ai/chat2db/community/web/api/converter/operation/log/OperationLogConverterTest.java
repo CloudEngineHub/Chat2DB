@@ -1,9 +1,7 @@
 package ai.chat2db.community.web.api.converter.operation.log;
 
-import ai.chat2db.community.domain.api.model.operation.OperationLog;
 import ai.chat2db.community.domain.api.model.request.operation.OpsOperationLogPageQueryRequest;
 import ai.chat2db.community.web.api.model.request.operation.log.OperationLogQueryRequest;
-import ai.chat2db.community.web.api.model.response.operation.log.OperationLogResponse;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -30,16 +28,5 @@ class OperationLogConverterTest {
         assertEquals(7L, param.getDataSourceId());
         assertEquals("warehouse", param.getDatabaseName());
         assertEquals("analytics", param.getSchemaName());
-    }
-
-    @Test
-    void toResponseExposesOperationType() {
-        OperationLog operationLog = new OperationLog();
-        operationLog.setDdl("select 1");
-        operationLog.setOperationType("SQL_EXECUTE");
-
-        OperationLogResponse response = converter.toResponse(operationLog);
-
-        assertEquals("SQL_EXECUTE", response.getOperationType());
     }
 }

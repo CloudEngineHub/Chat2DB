@@ -23,15 +23,13 @@ export function normalizeOperationLogFilters(filters: OperationLogFilterValues):
     normalizedFilters.dataSourceId = filters.dataSourceId;
   }
 
-  const databaseName = normalizeText(filters.databaseName);
-  const schemaName = normalizeText(filters.schemaName);
   const searchKey = normalizeText(filters.searchKey);
 
-  if (databaseName) {
-    normalizedFilters.databaseName = databaseName;
+  if (filters.databaseName) {
+    normalizedFilters.databaseName = filters.databaseName;
   }
-  if (schemaName) {
-    normalizedFilters.schemaName = schemaName;
+  if (filters.schemaName) {
+    normalizedFilters.schemaName = filters.schemaName;
   }
   if (searchKey) {
     normalizedFilters.searchKey = searchKey;
