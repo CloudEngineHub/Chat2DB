@@ -107,6 +107,7 @@ public class MainJFrame extends JFrame {
     private Component browserUI_;
     private JCefAppConfig jcefAppConfig_;
     private volatile boolean windowFullScreen = false;
+    private volatile boolean showWindowOnStartup = true;
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<Pair<String, String>, IJcefActionHandler> actionHandlers = new HashMap<>();
     private static final String appName;
@@ -179,6 +180,10 @@ public class MainJFrame extends JFrame {
         requestFocus();
     }
     public void start(String[] args) {
+        start(args, true);
+    }
+    public void start(String[] args, boolean showWindowOnStartup) {
+        this.showWindowOnStartup = showWindowOnStartup;
         UrlProtocolRegistrarUtil.register();
         initPreProcessor();
         initializeCefApp(args);
@@ -844,7 +849,9 @@ public class MainJFrame extends JFrame {
             public void windowLostFocus(WindowEvent e) {
             }
         });
-        this.setVisible(true);
+        if (showWindowOnStartup) {
+            this.setVisible(true);
+        }
         writeDesktopReadyMarker();
         log.info("5. JFrame initialization completed.");
     }
