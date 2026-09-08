@@ -2,6 +2,8 @@ package ai.chat2db.community.web.api.adapter.db;
 
 import ai.chat2db.community.domain.api.service.file.IImportFileStagingService;
 import ai.chat2db.community.domain.api.service.file.IUploadFileService;
+import ai.chat2db.community.web.api.config.console.DesktopBridgeRequestContext;
+import ai.chat2db.community.web.api.model.request.db.DesktopImportFileRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -33,5 +35,10 @@ public class ImportFileUploadAdapter {
                 transferredFile.delete();
             }
         }
+    }
+
+    public String stageDesktopFile(DesktopImportFileRequest request) {
+        DesktopBridgeRequestContext.requireActive();
+        return importFileStagingService.stage(new File(request.getSourceFile()), request.getOriginalFileName());
     }
 }

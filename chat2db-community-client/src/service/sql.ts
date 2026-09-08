@@ -465,6 +465,11 @@ const uploadImportFile = createRequest<{ file: File }, string>('/api/rdb/import_
   contentType: 'formData',
 });
 
+const stageDesktopImportFile = createRequest<
+  { sourceFile: string; originalFileName: string },
+  string
+>('/api/rdb/import_preview/upload_local', { method: 'post' });
+
 const getImportPreview = createRequest<
   { dataSourceId: number; databaseName: string; schemaName?: string; tableName: string; fileId: string },
   IImportPreview
@@ -603,6 +608,7 @@ export default {
   getImportPreview,
   executeImportWithMapping,
   uploadImportFile,
+  stageDesktopImportFile,
   getActiveTransactionList,
   getDataSourceList,
 };

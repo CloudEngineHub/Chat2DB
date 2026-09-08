@@ -8,6 +8,7 @@ import ai.chat2db.community.tools.wrapper.result.DataResult;
 import ai.chat2db.community.web.api.adapter.db.ImportFileUploadAdapter;
 import ai.chat2db.community.web.api.aspect.connection.ConnectionInfoAspect;
 import ai.chat2db.community.web.api.converter.db.DbImportWebConverter;
+import ai.chat2db.community.web.api.model.request.db.DesktopImportFileRequest;
 import ai.chat2db.community.web.api.model.request.db.ImportExecuteRequest;
 import ai.chat2db.community.web.api.model.request.db.ImportPreviewRequest;
 import ai.chat2db.community.web.api.model.response.task.TaskSubmitResponse;
@@ -52,6 +53,11 @@ public class DbImportPreviewController {
     @PostMapping("/upload")
     public DataResult<String> upload(@RequestParam("file") MultipartFile file) {
         return DataResult.of(importFileUploadAdapter.stage(file));
+    }
+
+    @PostMapping("/upload_local")
+    public DataResult<String> uploadDesktopFile(@Valid @RequestBody DesktopImportFileRequest request) {
+        return DataResult.of(importFileUploadAdapter.stageDesktopFile(request));
     }
 
     @PostMapping("/preview")
