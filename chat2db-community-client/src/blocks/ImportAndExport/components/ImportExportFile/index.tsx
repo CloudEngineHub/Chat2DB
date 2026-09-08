@@ -9,11 +9,12 @@ import { ImportExportType, ImportExportFileType, ImportExportTaskType } from '@/
 import { ExportTaskParams, ImportTaskParams } from '@/service/importExport';
 import { isDesktop, isDevelopment } from '@/utils/env';
 import jcefApi from '@/jcef';
+import { hasSelectedImportFile } from './selection';
 
 interface IProps {
   className?: string;
   setIsReady?: (p: boolean) => void;
-  onImportFileChange?: (file: File) => void;
+  onImportFileChange?: (file?: File) => void;
 }
 
 export interface ImportExportFileRef {
@@ -69,13 +70,6 @@ const ImportExportFile = forwardRef((props: IProps, ref: ForwardedRef<ImportExpo
     return formValue.exportType ? exportTypeOptions.find((item) => item.value === formValue.exportType)?.accept : '';
   }, [formValue.exportType]);
 
-  // file list changes
-  useEffect(() => {
-    if (isImport) {
-      setIsReady?.(!!selectedFilePaths.length);
-    }
-  }, [isImport, selectedFilePaths]);
-
   useEffect(() => {
     if (isExport) {
       setIsReady?.(!isDesktop || !!exportLocation || !!formValue.fileUrl);
@@ -84,8 +78,9 @@ const ImportExportFile = forwardRef((props: IProps, ref: ForwardedRef<ImportExpo
 
   const handleSelectedFilesChange = (files: FileUrl[]) => {
     setSelectedFilePaths(files.map((item) => item.filePath).filter((path): path is string => !!path));
-    if (isImport && files[0]?.file) {
-      onImportFileChange?.(files[0].file);
+    if (isImport) {
+      setIsReady?.(hasSelectedImportFile(files));
+      onImportFileChange?.(files[0]?.file);
     }
   };
 

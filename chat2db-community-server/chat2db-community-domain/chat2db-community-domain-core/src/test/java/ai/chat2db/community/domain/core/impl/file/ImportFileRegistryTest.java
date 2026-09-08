@@ -50,4 +50,27 @@ class ImportFileRegistryTest {
 
         assertThrows(BusinessException.class, () -> new ImportFileRegistry().resolve("../outside"));
     }
+
+    @Test
+    void acceptsEverySupportedWebImportFormat() throws Exception {
+        System.setProperty("user.home", tempDirectory.toString());
+        ImportFileRegistry registry = new ImportFileRegistry();
+
+        for (String extension : new String[] {"csv", "xls", "xlsx", "json", "sql"}) {
+            File source = Files.writeString(tempDirectory.resolve("source." + extension), "test").toFile();
+            String fileId = registry.register(source, "input." + extension);
+            File resolved = registry.resolve(fileId);
+
+            assertEquals(fileId + "." + extension, resolved.getName());
+            registry.release(fileId);
+        }
+    }
+
+    @Test
+    void rejectsUnsupportedImportFormat() throws Exception {
+        System.setProperty("user.home", tempDirectory.toString());
+        File source = Files.writeString(tempDirectory.resolve("source.zip"), "test").toFile();
+
+        assertThrows(BusinessException.class, () -> new ImportFileRegistry().register(source, "input.zip"));
+    }
 }

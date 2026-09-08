@@ -12,6 +12,8 @@ import { ImportExportTaskDetails } from '@/typings/importExport';
 import ImportMappingContent from '@/blocks/ImportAndExport/components/ImportMappingContent';
 import jcefApi from '@/jcef';
 import { isDesktop } from '@/utils/env';
+import sqlService from '@/service/sql';
+import { prepareWebImportParams } from './submission';
 import {
   IMPORT_TARGET_TABLE_REFRESH_EVENT,
   shouldRefreshImportTargetTable,
@@ -51,18 +53,25 @@ export default memo<IProps>((_props) => {
     }
   }, [importExportDataBoundInfo]);
 
-  const handleRunSQl = () => {
+  const handleRunSQl = async () => {
     const params = importExportFileRef.current?.getValues();
     if (!params) return;
-    const request =
-      'sourceFile' in params ? importExportServices.submitImport(params) : importExportServices.submitExport(params);
-    request.then((res) => {
-      setTaskId(res.taskId);
-      getTaskList();
-    });
+    let response;
+    if ('sourceFile' in params) {
+      let importParams = params;
+      if (!isDesktop) {
+        if (!importFile) return;
+        importParams = await prepareWebImportParams(importParams, importFile, sqlService.uploadImportFile);
+      }
+      response = await importExportServices.submitImport(importParams);
+    } else {
+      response = await importExportServices.submitExport(params);
+    }
+    setTaskId(response.taskId);
+    getTaskList();
   };
 
-  const handleImportFileChange = (file: File) => {
+  const handleImportFileChange = (file?: File) => {
     setImportFile(file);
   };
 

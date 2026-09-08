@@ -1,5 +1,6 @@
 package ai.chat2db.community.domain.core.impl.file;
 
+import ai.chat2db.community.domain.api.model.task.TaskFileFormat;
 import ai.chat2db.community.domain.api.service.file.IImportFileRegistry;
 import ai.chat2db.community.tools.exception.BusinessException;
 import ai.chat2db.community.tools.util.ConfigUtils;
@@ -21,7 +22,12 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class ImportFileRegistry implements IImportFileRegistry {
-    private static final Set<String> ALLOWED_EXTENSIONS = Set.of("csv", "xls", "xlsx");
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
+            TaskFileFormat.CSV.name().toLowerCase(Locale.ROOT),
+            TaskFileFormat.XLS.name().toLowerCase(Locale.ROOT),
+            TaskFileFormat.XLSX.name().toLowerCase(Locale.ROOT),
+            TaskFileFormat.JSON.name().toLowerCase(Locale.ROOT),
+            TaskFileFormat.SQL.name().toLowerCase(Locale.ROOT));
     private static final Duration MAX_AGE = Duration.ofHours(24);
     private static final Duration CLAIMED_MAX_AGE = Duration.ofDays(7);
     private static final long MAX_SIZE_BYTES = 50L * 1024 * 1024;
