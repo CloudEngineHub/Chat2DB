@@ -76,14 +76,14 @@ export const useStyles = createStyles(({ css, token }) => {
         color: ${token.colorText};
       }
     `,
-    selectedKnowledgeList: css`
+    contextReferenceList: css`
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       gap: 6px;
       margin-bottom: 7px;
     `,
-    selectedKnowledgeItem: css`
+    contextReferenceItem: css`
       display: inline-flex;
       align-items: center;
       gap: 5px;
@@ -95,6 +95,9 @@ export const useStyles = createStyles(({ css, token }) => {
       font-size: 12px;
       line-height: 18px;
       cursor: pointer;
+      color: ${token.colorInfoText};
+      border-color: ${token.colorInfoBorder};
+      background: ${token.colorInfoBg};
 
       > span:first-of-type {
         overflow: hidden;
@@ -102,25 +105,10 @@ export const useStyles = createStyles(({ css, token }) => {
         white-space: nowrap;
       }
     `,
-    selectedKnowledgeRemoveIcon: css`
+    contextReferenceRemoveIcon: css`
       flex-shrink: 0;
       font-size: 10px;
       opacity: 0.72;
-    `,
-    knowledgeTermMention: css`
-      color: ${token.colorInfoText};
-      border-color: ${token.colorInfoBorder};
-      background: ${token.colorInfoBg};
-    `,
-    businessLogicMention: css`
-      color: ${token.colorSuccessText};
-      border-color: ${token.colorSuccessBorder};
-      background: ${token.colorSuccessBg};
-    `,
-    sqlTemplateMention: css`
-      color: ${token.colorWarningText};
-      border-color: ${token.colorWarningBorder};
-      background: ${token.colorWarningBg};
     `,
     bottomAddonsRow: css`
       width: 100%;

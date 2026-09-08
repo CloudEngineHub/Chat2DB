@@ -1,6 +1,6 @@
 package ai.chat2db.community.domain.api.model.ai;
 
-import ai.chat2db.community.domain.api.model.request.ai.AiSelectedKnowledge;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class AiChatMessage {
 
     private String id;
@@ -22,7 +23,7 @@ public class AiChatMessage {
 
     private List<ChatAttachment> attachments = new ArrayList<>();
 
-    private List<AiSelectedKnowledge> selectedKnowledge = new ArrayList<>();
+    private List<AiContextReferenceSnapshot> contextReferences = new ArrayList<>();
 
     private LocalDateTime gmtCreate;
 }

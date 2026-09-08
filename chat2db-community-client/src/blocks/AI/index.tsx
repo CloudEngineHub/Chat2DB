@@ -24,8 +24,7 @@ import aiStreamService, {
   IChatMessage,
   IChatSession,
   IModelOptionItem,
-  ISelectedKnowledge,
-  KnowledgeSelectionType,
+  IChatContextReference,
 } from '@/service/aiStream';
 import { IChatAttachment } from '@/service/aiAttachment';
 import { useAIStore } from '@/store/ai';
@@ -48,7 +47,7 @@ import { listAvailableModelOptions, resolveModelRequestPayload } from '@/service
 import { isDesktop } from '@/utils/env';
 import { usePermission } from '@/hooks/usePermission';
 import { clientRuntime } from '@client-runtime';
-import { toKnowledgeSelectionReferences } from './knowledgeSelection';
+import clientExtension from '@client-extension';
 import { buildWorkspaceObjectTabTitle } from '@/utils/workspaceObjectTabTitle';
 import type { IConnectionEnv } from '@/typings';
 import { resolveAIDataSourceContext } from './dataSourceContext';
@@ -333,15 +332,9 @@ interface IChatItem {
   role: ChatRole;
   content: string;
   attachments?: IChatAttachment[];
-  selectedKnowledge?: ISelectedKnowledge[];
+  contextReferences?: IChatContextReference[];
   traceEntries?: ITraceEntry[];
 }
-
-const knowledgeTypeLabel: Record<KnowledgeSelectionType, string> = {
-  KNOWLEDGE_TERM: '知识名词',
-  BUSINESS_LOGIC: '业务逻辑',
-  SQL_TEMPLATE: 'SQL 模板',
-};
 
 interface IChatRound {
   key: string;
@@ -1428,7 +1421,7 @@ export default function AI({ variant = 'page', onTableClick, onPinSql, onSession
           role: m.role as ChatRole,
           content: m.content,
           attachments: m.attachments,
-          selectedKnowledge: m.selectedKnowledge,
+          contextReferences: m.contextReferences,
           traceEntries: parseTraceEntries(m.reasoningContent),
         }));
         const latestInProgressSession = inProgressSessionRef.current;
@@ -1593,7 +1586,7 @@ export default function AI({ variant = 'page', onTableClick, onPinSql, onSession
             role: 'user' as const,
             content,
             attachments: params.attachments,
-            selectedKnowledge: params.selectedKnowledge,
+            contextReferences: params.contextReferences,
           },
         ];
         messagesRef.current = next;
@@ -1644,7 +1637,7 @@ export default function AI({ variant = 'page', onTableClick, onPinSql, onSession
         databaseType: params.databaseType,
         tableName: params.tableName,
         questionType: params.questionType,
-        selectedKnowledge: toKnowledgeSelectionReferences(params.selectedKnowledge),
+        contextReferences: (params.contextReferences || []).map(({ provider, id, type }) => ({ provider, id, type })),
         attachments: params.attachments,
       });
 
@@ -1995,23 +1988,17 @@ export default function AI({ variant = 'page', onTableClick, onPinSql, onSession
                         ))}
                       </div>
                     ) : null}
-                    {round.user.selectedKnowledge?.some((knowledge) => knowledge.key) ? (
-                      <div className={styles.userKnowledgeList} aria-label="本次使用的知识点">
-                        {round.user.selectedKnowledge
-                          .filter((knowledge) => knowledge.key)
-                          .map((knowledge) => (
+                    {round.user.contextReferences?.some((reference) => reference.label) ? (
+                      <div className={styles.userContextReferenceList}>
+                        {round.user.contextReferences
+                          .filter((reference) => reference.label)
+                          .map((reference) => (
                             <span
-                              key={`${knowledge.type}-${knowledge.id}`}
-                              className={cx(
-                                styles.userKnowledgeItem,
-                                knowledge.type === 'KNOWLEDGE_TERM' && styles.userKnowledgeTerm,
-                                knowledge.type === 'BUSINESS_LOGIC' && styles.userBusinessLogic,
-                                knowledge.type === 'SQL_TEMPLATE' && styles.userSqlTemplate,
-                              )}
-                              title={knowledge.value || knowledge.key}
+                              key={`${reference.provider}-${reference.type}-${reference.id}`}
+                              className={styles.userContextReferenceItem}
+                              title={reference.description || reference.label}
                             >
-                              <span className={styles.userKnowledgeType}>{knowledgeTypeLabel[knowledge.type]}：</span>
-                              <span className={styles.userKnowledgeName}>{knowledge.key}</span>
+                              {clientExtension.renderContextReference?.(reference) || reference.label}
                             </span>
                           ))}
                       </div>

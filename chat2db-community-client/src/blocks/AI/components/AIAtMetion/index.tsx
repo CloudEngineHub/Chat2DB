@@ -5,7 +5,6 @@ import { Cascader, CascaderProps, Spin } from 'antd';
 import useActive from './useActive';
 import { useStyles } from './style';
 import { IconfontSvg } from '@chat2db/ui';
-import { BookOpenText } from 'lucide-react';
 
 export interface RenderChildrenProps<T> {
   /**
@@ -102,34 +101,22 @@ function AIAtMetion<T>(props: AIAtMetionProps<T>) {
     onClose,
   );
 
-  const knowledgeTypeClassName = (item: SuggestionItem) => {
-    switch (item.knowledge?.type) {
-      case 'BUSINESS_LOGIC':
-        return styles.businessLogic;
-      case 'SQL_TEMPLATE':
-        return styles.sqlTemplate;
-      default:
-        return styles.knowledgeTerm;
-    }
-  };
-
   const optionRender: CascaderProps<SuggestionItem>['optionRender'] = (node) => {
     return (
       <div
         className={styles.optionRow}
-        onMouseEnter={() => setPreviewValue(node.kind === 'knowledge' ? node.value : undefined)}
+        onMouseEnter={() => setPreviewValue(node.preview ? node.value : undefined)}
       >
         <div className={styles.optionTitle}>
-          {node.kind === 'knowledge' ? (
-            <BookOpenText size={15} className={knowledgeTypeClassName(node)} />
-          ) : (
-            <IconfontSvg
-              size="md"
-              existDark={true}
-              appearance={appearance}
-              code={node.tableType === 'TABLE' ? 'icon-colourful-table' : 'icon-colourful-table-view'}
-            />
-          )}
+          {node.icon ??
+            (node.kind === 'table' ? (
+              <IconfontSvg
+                size="md"
+                existDark={true}
+                appearance={appearance}
+                code={node.tableType === 'TABLE' ? 'icon-colourful-table' : 'icon-colourful-table-view'}
+              />
+            ) : null)}
           <span className={styles.optionLabel}>{node.label}</span>
         </div>
         <div className={styles.optionExtra}>{node.extra}</div>
@@ -178,23 +165,7 @@ function AIAtMetion<T>(props: AIAtMetionProps<T>) {
                 </div>
               ) : null}
             </div>
-            {previewItem?.knowledge && (
-              <div className={styles.previewPane}>
-                <div className={styles.previewHeader}>
-                  <span className={`${styles.previewType} ${knowledgeTypeClassName(previewItem)}`}>
-                    {previewItem.extra}
-                  </span>
-                  <strong className={styles.previewTitle}>{previewItem.knowledge.key}</strong>
-                </div>
-                <div
-                  className={`${styles.previewContent} ${
-                    previewItem.knowledge.type === 'SQL_TEMPLATE' ? styles.previewSql : ''
-                  }`}
-                >
-                  {previewItem.knowledge.value || '暂无说明'}
-                </div>
-              </div>
-            )}
+            {previewItem?.preview ? <div className={styles.previewPane}>{previewItem.preview}</div> : null}
           </div>
         ) : null
       }

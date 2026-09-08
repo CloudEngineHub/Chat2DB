@@ -1,6 +1,5 @@
 package ai.chat2db.community.domain.api.model.ai;
 
-import ai.chat2db.community.domain.api.model.request.ai.AiSelectedKnowledge;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -15,7 +14,7 @@ public class AiBusinessContextResult {
 
     private String structuredContext;
 
-    private List<AiSelectedKnowledge> selectedKnowledge = new ArrayList<>();
+    private List<AiContextReferenceSnapshot> contextReferences = new ArrayList<>();
 
     public static AiBusinessContextResult empty() {
         return new AiBusinessContextResult(null, List.of());

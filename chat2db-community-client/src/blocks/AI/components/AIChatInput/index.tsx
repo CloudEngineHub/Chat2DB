@@ -35,11 +35,11 @@ import aiAttachmentService, { IChatAttachment } from '@/service/aiAttachment';
 import { isDesktop } from '@/utils/env';
 import jcefApi from '@/jcef';
 import feedback from '@/utils/feedback';
-import type { ISelectedKnowledge } from '@/service/aiStream';
+import type { IChatContextReference } from '@/service/aiStream';
 import clientExtension from '@client-extension';
 import type {
-  KnowledgeMentionCandidate,
-  KnowledgeMentionRequest,
+  AiContextMentionCandidate,
+  AiContextMentionRequest,
 } from '@/client-extension/types';
 import {
   detectMentionTrigger,
@@ -47,6 +47,7 @@ import {
   normalizeMentionInput,
   reconcileSelectedMentions,
   replaceMentionTrigger,
+  shouldOpenMention,
   upsertSelectedMention,
   type MentionTrigger,
   type SelectedMention,
@@ -71,7 +72,7 @@ export interface SendParams {
   sql?: string;
 
   attachments?: IChatAttachment[];
-  selectedKnowledge?: ISelectedKnowledge[];
+  contextReferences?: IChatContextReference[];
 }
 
 interface ChatInputProps {
@@ -107,30 +108,33 @@ export interface ChatInputPropsRef {
 const ATTACHMENT_ACCEPT = '.pdf,.doc,.docx,.md,.txt,.json,.csv,.xlsx,.xls';
 const ATTACHMENT_FILE_TYPES = ['pdf', 'doc', 'docx', 'md', 'txt', 'json', 'csv', 'xlsx', 'xls'];
 const ATTACHMENT_PARSE_MESSAGE_KEY = 'chat-attachment-parse';
-const KNOWLEDGE_PAGE_SIZE = 20;
+const CONTEXT_MENTION_PAGE_SIZE = 20;
 
-type KnowledgeSearchRequest = Pick<KnowledgeMentionRequest, 'searchKey' | 'inputText'>;
+type ContextSearchRequest = Pick<AiContextMentionRequest, 'searchKey' | 'inputText'>;
 
-interface KnowledgeSearchCursor {
+interface ContextSearchCursor {
   contextInfo: IAICascaderData | null | undefined;
-  request: KnowledgeSearchRequest;
+  request: ContextSearchRequest;
   requestSequence: number;
   pageNo: number;
   hasNextPage: boolean;
 }
 
-const toKnowledgeSuggestions = (candidates: readonly KnowledgeMentionCandidate[]): SuggestionItem[] =>
+const toContextSuggestions = (candidates: readonly AiContextMentionCandidate[]): SuggestionItem[] =>
   candidates.map((candidate) => ({
-    label: candidate.key,
-    value: `knowledge:${candidate.type}:${candidate.id}`,
-    kind: 'knowledge',
-    knowledge: candidate,
-    extra:
-      candidate.type === 'KNOWLEDGE_TERM'
-        ? '知识名词'
-        : candidate.type === 'BUSINESS_LOGIC'
-        ? '业务逻辑'
-        : 'SQL 模板',
+    label: candidate.label,
+    value: `context:${candidate.provider}:${candidate.type}:${candidate.id}`,
+    kind: 'context',
+    contextReference: {
+      provider: candidate.provider,
+      id: candidate.id,
+      type: candidate.type,
+      label: candidate.label,
+      description: candidate.description,
+    },
+    icon: candidate.icon,
+    extra: candidate.extra,
+    preview: candidate.preview,
   }));
 
 const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInputPropsRef>) => {
@@ -155,9 +159,9 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
   const [inputValue, setInputValue] = useState('');
   const [prefillQuestionType, setPrefillQuestionType] = useState<QuestionType>();
   const [tableList, setTableList] = useState<ITable[]>([]);
-  const [knowledgeList, setKnowledgeList] = useState<SuggestionItem[]>([]);
-  const [knowledgeHasNextPage, setKnowledgeHasNextPage] = useState(false);
-  const [knowledgeLoadingMore, setKnowledgeLoadingMore] = useState(false);
+  const [contextList, setContextList] = useState<SuggestionItem[]>([]);
+  const [contextHasNextPage, setContextHasNextPage] = useState(false);
+  const [contextLoadingMore, setContextLoadingMore] = useState(false);
   const [selectedMentions, setSelectedMentions] = useState<SelectedMention[]>([]);
   const [mentionTrigger, setMentionTrigger] = useState<MentionTrigger | null>(null);
   const [attachments, setAttachments] = useState<IChatAttachment[]>([]);
@@ -165,9 +169,9 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
   const textareaRef = useRef<TextAreaRef>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef<boolean>(false); // IME input method combination status
-  const knowledgeRequestSequenceRef = useRef(0);
-  const knowledgeSearchCursorRef = useRef<KnowledgeSearchCursor | null>(null);
-  const knowledgeLoadingSequenceRef = useRef<number | null>(null);
+  const contextRequestSequenceRef = useRef(0);
+  const contextSearchCursorRef = useRef<ContextSearchCursor | null>(null);
+  const contextLoadingSequenceRef = useRef<number | null>(null);
 
   // caches tables without search conditions
   const tableListWithoutSearchKey = useRef<ITable[]>([]);
@@ -237,23 +241,24 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
 
   useEffect(() => {
     tableListWithoutSearchKey.current = [];
-    knowledgeRequestSequenceRef.current += 1;
+    contextRequestSequenceRef.current += 1;
     setSelectedMentions([]);
     setMentionTrigger(null);
     setTableList([]);
-    setKnowledgeList([]);
-    setKnowledgeHasNextPage(false);
-    knowledgeSearchCursorRef.current = null;
-    knowledgeLoadingSequenceRef.current = null;
-    setKnowledgeLoadingMore(false);
+    setContextList([]);
+    setContextHasNextPage(false);
+    contextSearchCursorRef.current = null;
+    contextLoadingSequenceRef.current = null;
+    setContextLoadingMore(false);
     if (cascaderDataMap[mainPageActiveTab]) {
       fetchTableList(cascaderDataMap[mainPageActiveTab], '');
     }
   }, [cascaderDataMap[mainPageActiveTab]]);
 
   const fetchTableList = useRef(
-    debounce(async (_contextInfo: IAICascaderData, searchKey: string) => {
+    debounce(async (_contextInfo: IAICascaderData, searchKey: string, requestSequence?: number) => {
       if (!_contextInfo) return;
+      if (requestSequence !== undefined && requestSequence !== contextRequestSequenceRef.current) return;
       if ('dataSourceId' in _contextInfo && _contextInfo?.dataSourceId) {
         if (!searchKey && tableListWithoutSearchKey.current.length) {
           setTableList(tableListWithoutSearchKey.current);
@@ -279,6 +284,7 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
             searchKey,
           });
         } catch (error) {
+          if (requestSequence !== undefined && requestSequence !== contextRequestSequenceRef.current) return;
           const requestError = error as { errorCode?: string };
           if (
             requestError.errorCode === 'QUERY_DATASOURCE_ERROR' ||
@@ -290,6 +296,8 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
           }
           return;
         }
+
+        if (requestSequence !== undefined && requestSequence !== contextRequestSequenceRef.current) return;
 
         const atTableList =
           res.data?.map((s) => ({
@@ -318,49 +326,49 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
     return () => fetchTableList.cancel();
   }, []);
 
-  const requestKnowledgePage = (
+  const requestContextPage = (
     contextInfo: IAICascaderData | null | undefined,
-    request: KnowledgeSearchRequest,
+    request: ContextSearchRequest,
     pageNo: number,
   ) => {
-    if (!clientExtension.knowledgeMentions) {
+    if (!clientExtension.contextMentions) {
       return null;
     }
     const dataSourceId = contextInfo && 'dataSourceId' in contextInfo ? contextInfo.dataSourceId : undefined;
     const databaseName = contextInfo && 'databaseName' in contextInfo ? contextInfo.databaseName : undefined;
     const schemaName = contextInfo && 'schemaName' in contextInfo ? contextInfo.schemaName : undefined;
-    return clientExtension.knowledgeMentions({
+    return clientExtension.contextMentions({
       ...request,
       dataSourceId,
       databaseName,
       schemaName,
       pageNo,
-      pageSize: KNOWLEDGE_PAGE_SIZE,
+      pageSize: CONTEXT_MENTION_PAGE_SIZE,
     });
   };
 
-  const fetchKnowledgeList = async (
+  const fetchContextList = async (
     contextInfo: IAICascaderData | null | undefined,
-    request: KnowledgeSearchRequest,
+    request: ContextSearchRequest,
     requestSequence: number,
     onResolved: (hasCandidates: boolean) => void,
   ) => {
-    const response = requestKnowledgePage(contextInfo, request, 1);
+    const response = requestContextPage(contextInfo, request, 1);
     if (!response) {
-      setKnowledgeList([]);
-      setKnowledgeHasNextPage(false);
+      setContextList([]);
+      setContextHasNextPage(false);
       onResolved(false);
       return;
     }
     try {
       const page = await response;
-      if (requestSequence !== knowledgeRequestSequenceRef.current) return;
-      const suggestions = toKnowledgeSuggestions(page.data || []);
+      if (requestSequence !== contextRequestSequenceRef.current) return;
+      const suggestions = toContextSuggestions(page.data || []);
       const hasUnselectedCandidates = filterUnselectedMentionCandidates(suggestions, selectedMentions).length > 0;
       const hasNextPage = Boolean(page.hasNextPage);
-      setKnowledgeList(suggestions);
-      setKnowledgeHasNextPage(hasNextPage);
-      knowledgeSearchCursorRef.current = {
+      setContextList(suggestions);
+      setContextHasNextPage(hasNextPage);
+      contextSearchCursorRef.current = {
         contextInfo,
         request,
         requestSequence,
@@ -368,22 +376,22 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
         hasNextPage,
       };
       window.setTimeout(() => {
-        if (requestSequence === knowledgeRequestSequenceRef.current) {
+        if (requestSequence === contextRequestSequenceRef.current) {
           onResolved(hasUnselectedCandidates);
         }
       }, 0);
     } catch {
-      if (requestSequence !== knowledgeRequestSequenceRef.current) return;
-      setKnowledgeList([]);
-      setKnowledgeHasNextPage(false);
-      knowledgeSearchCursorRef.current = null;
+      if (requestSequence !== contextRequestSequenceRef.current) return;
+      setContextList([]);
+      setContextHasNextPage(false);
+      contextSearchCursorRef.current = null;
       onResolved(false);
     }
   };
 
   useEffect(
     () => () => {
-      knowledgeRequestSequenceRef.current += 1;
+      contextRequestSequenceRef.current += 1;
     },
     [],
   );
@@ -449,14 +457,9 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
       tableList: selectedMentions
         .filter((mention) => mention.kind === 'table')
         .map((mention) => ({ tableName: mention.tableName, tableType: mention.tableType })) as any,
-      selectedKnowledge: selectedMentions
-        .filter((mention) => mention.kind === 'knowledge' && mention.knowledge)
-        .map((mention) => ({
-          id: mention.knowledge!.id,
-          type: mention.knowledge!.type,
-          key: mention.knowledge!.key,
-          value: mention.knowledge!.value,
-        })),
+      contextReferences: selectedMentions
+        .filter((mention) => mention.kind === 'context' && mention.contextReference)
+        .map((mention) => mention.contextReference!),
       attachments: finalAttachments,
     };
 
@@ -628,7 +631,7 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
   };
 
   const getMentionList = (info?: MentionTrigger) => {
-    const availableKnowledge = filterUnselectedMentionCandidates(knowledgeList, selectedMentions);
+    const availableContext = filterUnselectedMentionCandidates(contextList, selectedMentions);
     const tables: SuggestionItem[] = (tableList || []).map((table) => ({
       label: table.name,
       value: `table:${table.tableType}:${table.name}`,
@@ -637,34 +640,34 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
       tableType: table.tableType,
       extra: table.tableType === 'VIEW' ? '视图' : '表',
     }));
-    if (info?.mode === 'natural') return availableKnowledge;
-    const candidates = [...tables, ...availableKnowledge];
+    if (info?.mode === 'natural') return availableContext;
+    const candidates = [...tables, ...availableContext];
     if (!info?.query) return candidates;
     return candidates.filter((item) => item.label.toLowerCase().includes(info.query.toLowerCase()));
   };
 
-  const loadMoreKnowledge = async () => {
-    const cursor = knowledgeSearchCursorRef.current;
-    if (!cursor?.hasNextPage || knowledgeLoadingSequenceRef.current === cursor.requestSequence) {
+  const loadMoreContext = async () => {
+    const cursor = contextSearchCursorRef.current;
+    if (!cursor?.hasNextPage || contextLoadingSequenceRef.current === cursor.requestSequence) {
       return;
     }
-    knowledgeLoadingSequenceRef.current = cursor.requestSequence;
-    setKnowledgeLoadingMore(true);
+    contextLoadingSequenceRef.current = cursor.requestSequence;
+    setContextLoadingMore(true);
     try {
       const nextPageNo = cursor.pageNo + 1;
-      const response = requestKnowledgePage(cursor.contextInfo, cursor.request, nextPageNo);
+      const response = requestContextPage(cursor.contextInfo, cursor.request, nextPageNo);
       if (!response) return;
       const page = await response;
-      if (cursor.requestSequence !== knowledgeRequestSequenceRef.current) return;
-      const suggestions = toKnowledgeSuggestions(page.data || []);
-      setKnowledgeList((previous) => {
+      if (cursor.requestSequence !== contextRequestSequenceRef.current) return;
+      const suggestions = toContextSuggestions(page.data || []);
+      setContextList((previous) => {
         const merged = new Map(previous.map((item) => [item.value, item]));
         suggestions.forEach((item) => merged.set(item.value, item));
         return [...merged.values()];
       });
       const hasNextPage = Boolean(page.hasNextPage);
-      setKnowledgeHasNextPage(hasNextPage);
-      knowledgeSearchCursorRef.current = {
+      setContextHasNextPage(hasNextPage);
+      contextSearchCursorRef.current = {
         ...cursor,
         pageNo: page.pageNo || nextPageNo,
         hasNextPage,
@@ -672,9 +675,9 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
     } catch {
       // Keep the current page and allow another scroll attempt.
     } finally {
-      if (knowledgeLoadingSequenceRef.current === cursor.requestSequence) {
-        knowledgeLoadingSequenceRef.current = null;
-        setKnowledgeLoadingMore(false);
+      if (contextLoadingSequenceRef.current === cursor.requestSequence) {
+        contextLoadingSequenceRef.current = null;
+        setContextLoadingMore(false);
       }
     }
   };
@@ -686,40 +689,45 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
   ) => {
     const nextTrigger = detectMentionTrigger(value, cursor);
     if (!nextTrigger) {
-      knowledgeRequestSequenceRef.current += 1;
+      contextRequestSequenceRef.current += 1;
       setMentionTrigger(null);
-      setKnowledgeList([]);
-      setKnowledgeHasNextPage(false);
-      knowledgeSearchCursorRef.current = null;
+      setContextList([]);
+      setContextHasNextPage(false);
+      contextSearchCursorRef.current = null;
       onTrigger(false);
       return;
     }
 
-    const requestSequence = knowledgeRequestSequenceRef.current + 1;
-    knowledgeRequestSequenceRef.current = requestSequence;
+    const requestSequence = contextRequestSequenceRef.current + 1;
+    contextRequestSequenceRef.current = requestSequence;
     onTrigger(false);
-    setKnowledgeList([]);
+    setContextList([]);
     setTableList([]);
-    knowledgeSearchCursorRef.current = null;
-    knowledgeLoadingSequenceRef.current = null;
-    setKnowledgeHasNextPage(false);
-    setKnowledgeLoadingMore(false);
+    contextSearchCursorRef.current = null;
+    contextLoadingSequenceRef.current = null;
+    setContextHasNextPage(false);
+    setContextLoadingMore(false);
     setMentionTrigger(nextTrigger);
     const contextInfo = cascaderDataMap[mainPageActiveTab];
 
     if (nextTrigger.mode === 'explicit') {
-      fetchTableList(contextInfo, nextTrigger.query);
+      fetchTableList(contextInfo, nextTrigger.query, requestSequence);
+      onTrigger(nextTrigger);
+    } else if (!clientExtension.contextMentions) {
+      setMentionTrigger(null);
+      onTrigger(false);
+      return;
     }
 
-    fetchKnowledgeList(
+    fetchContextList(
       contextInfo,
       nextTrigger.mode === 'explicit'
         ? { searchKey: nextTrigger.query || undefined }
         : { inputText: nextTrigger.inputText.slice(-200) },
       requestSequence,
       (hasCandidates) => {
-        if (requestSequence !== knowledgeRequestSequenceRef.current) return;
-        if (hasCandidates) {
+        if (requestSequence !== contextRequestSequenceRef.current) return;
+        if (shouldOpenMention(nextTrigger, hasCandidates)) {
           onTrigger(nextTrigger);
         } else {
           setMentionTrigger(null);
@@ -744,24 +752,18 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
     );
   };
 
-  const selectedMentionClassName = (mention: SelectedMention) => {
-    switch (mention.knowledge?.type) {
-      case 'BUSINESS_LOGIC':
-        return styles.businessLogicMention;
-      case 'SQL_TEMPLATE':
-        return styles.sqlTemplateMention;
-      default:
-        return styles.knowledgeTermMention;
-    }
-  };
+  const renderSelectedContext = (mention: SelectedMention) =>
+    mention.contextReference
+      ? clientExtension.renderContextReference?.(mention.contextReference) || mention.label
+      : mention.label;
 
   return (
     <AIAtMetion<MentionTrigger>
       className={className}
       items={getMentionList}
-      hasMore={knowledgeHasNextPage}
-      loadingMore={knowledgeLoadingMore}
-      onLoadMore={loadMoreKnowledge}
+      hasMore={contextHasNextPage}
+      loadingMore={contextLoadingMore}
+      onLoadMore={loadMoreContext}
       onSelect={(item) => {
         const textarea = textareaRef.current?.resizableTextArea?.textArea;
         const cursor = textarea?.selectionStart ?? inputValue.length;
@@ -778,15 +780,15 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
             kind: item.kind,
             tableName: item.tableName,
             tableType: item.tableType,
-            knowledge: item.knowledge,
+            contextReference: item.contextReference,
           };
           return upsertSelectedMention(previous, nextMention);
         });
-        knowledgeRequestSequenceRef.current += 1;
+        contextRequestSequenceRef.current += 1;
         setMentionTrigger(null);
-        setKnowledgeList([]);
-        setKnowledgeHasNextPage(false);
-        knowledgeSearchCursorRef.current = null;
+        setContextList([]);
+        setContextHasNextPage(false);
+        contextSearchCursorRef.current = null;
         window.setTimeout(() => {
           textarea?.focus();
           textarea?.setSelectionRange(replacement.cursor, replacement.cursor);
@@ -821,21 +823,21 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
               ))}
             </div>
           )}
-          {!!selectedMentions.some((mention) => mention.kind === 'knowledge') && (
-            <div className={styles.selectedKnowledgeList}>
+          {!!selectedMentions.some((mention) => mention.kind === 'context') && (
+            <div className={styles.contextReferenceList}>
               {selectedMentions
-                .filter((mention) => mention.kind === 'knowledge')
+                .filter((mention) => mention.kind === 'context')
                 .map((mention) => (
                   <button
                     key={mention.value}
                     type="button"
-                    className={`${styles.selectedKnowledgeItem} ${selectedMentionClassName(mention)}`}
-                    title={mention.knowledge?.value}
+                    className={styles.contextReferenceItem}
+                    title={mention.contextReference?.description}
                     aria-label={`取消选择${mention.label}`}
                     onClick={() => removeSelectedMention(mention.value)}
                   >
-                    <span>{mention.label}</span>
-                    <CloseOutlined className={styles.selectedKnowledgeRemoveIcon} />
+                    <span>{renderSelectedContext(mention)}</span>
+                    <CloseOutlined className={styles.contextReferenceRemoveIcon} />
                   </button>
                 ))}
             </div>

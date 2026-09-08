@@ -22,7 +22,7 @@ export default function useActive(
     const nextItem = items[(currentRowIndex + offset + items.length) % items.length];
     setActivePaths([nextItem.value]);
     if (previewValue) {
-      setPreviewValue(nextItem.kind === 'knowledge' ? nextItem.value : undefined);
+      setPreviewValue(nextItem.preview ? nextItem.value : undefined);
     }
 
     // Add a delay to wait for the DOM to update before scrolling
@@ -57,7 +57,7 @@ export default function useActive(
       }
 
       case 'ArrowRight': {
-        if (activeItem?.kind === 'knowledge') {
+        if (activeItem?.preview) {
           setPreviewValue(activeItem.value);
           e.preventDefault();
         }

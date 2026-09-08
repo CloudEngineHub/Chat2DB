@@ -14,5 +14,5 @@ public class AiBusinessContextBuildRequest {
 
     private String schemaName;
 
-    private List<AiSelectedKnowledge> selectedKnowledge = new ArrayList<>();
+    private List<AiContextReferenceRequest> contextReferences = new ArrayList<>();
 }

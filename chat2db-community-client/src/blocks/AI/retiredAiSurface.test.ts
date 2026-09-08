@@ -30,6 +30,13 @@ const retiredMarkers = [
   'AI_DATA_COLLECTION',
   'defaultDataCollectionList',
   'needAiDataCollections',
+  'selected' + 'Knowledge',
+  'Selected' + 'Knowledge',
+  'knowledge' + 'Mentions',
+  'Knowledge' + 'Mention',
+  'KNOWLEDGE_' + 'TERM',
+  'BUSINESS_' + 'LOGIC',
+  'SQL_' + 'TEMPLATE',
 ];
 
 const sourceFiles: string[] = [];
@@ -80,18 +87,18 @@ const requestSource = readFileSync(
   'utf8',
 );
 assert.match(aiSource, /baseURL: '\/api\/v3\/ai\/chat\/stream'/);
-assert.match(aiSource, /selectedKnowledge: toKnowledgeSelectionReferences\(params\.selectedKnowledge\)/);
-assert.match(inputSource, /clientExtension\.knowledgeMentions/);
+assert.match(aiSource, /contextReferences:/);
+assert.match(inputSource, /clientExtension\.contextMentions/);
 assert.match(inputSource, /normalizeMentionInput/);
-const knowledgeRequestSource = inputSource.slice(
-  inputSource.indexOf('const fetchKnowledgeList'),
+const contextRequestSource = inputSource.slice(
+  inputSource.indexOf('const fetchContextList'),
   inputSource.indexOf('const handleSend'),
 );
-assert.doesNotMatch(knowledgeRequestSource, /debounce/);
-assert.match(inputSource, /pageSize: KNOWLEDGE_PAGE_SIZE/);
-assert.match(inputSource, /loadMoreKnowledge/);
+assert.doesNotMatch(contextRequestSource, /debounce/);
+assert.match(inputSource, /pageSize: CONTEXT_MENTION_PAGE_SIZE/);
+assert.match(inputSource, /loadMoreContext/);
 assert.match(mentionSource, /onScrollCapture/);
-assert.match(requestSource, /List<SelectedKnowledgeRequest> selectedKnowledge/);
+assert.match(requestSource, /List<AiContextReferenceRequest> contextReferences/);
 assert.doesNotMatch(requestSource, /private String key/);
 assert.doesNotMatch(requestSource, /private String value/);
 assert.match(treeStoreSource, /import \{ clientRuntime \} from '@client-runtime';/);

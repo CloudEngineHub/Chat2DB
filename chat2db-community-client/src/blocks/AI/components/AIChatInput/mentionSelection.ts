@@ -1,15 +1,12 @@
+import type { IChatContextReference } from '@/service/aiStream';
+
 export interface SelectedMention {
   value: string;
   label: string;
-  kind: 'table' | 'knowledge';
+  kind: 'table' | 'context';
   tableName?: string;
   tableType?: string;
-  knowledge?: {
-    id: number;
-    type: 'KNOWLEDGE_TERM' | 'BUSINESS_LOGIC' | 'SQL_TEMPLATE';
-    key: string;
-    value: string;
-  };
+  contextReference?: IChatContextReference;
 }
 
 export interface MentionTrigger {
@@ -69,6 +66,9 @@ export const detectMentionTrigger = (input: string, cursor: number): MentionTrig
     end: triggerStart + trailingText.length,
   };
 };
+
+export const shouldOpenMention = (trigger: MentionTrigger, hasExtensionCandidates: boolean): boolean =>
+  trigger.mode === 'explicit' || hasExtensionCandidates;
 
 export const findNaturalFragmentRange = (
   input: string,

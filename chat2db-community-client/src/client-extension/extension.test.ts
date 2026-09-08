@@ -12,7 +12,8 @@ assert.equal(clientExtension.mainPage.slots, undefined);
 assert.equal(clientExtension.mainPage.hiddenCoreActions, undefined);
 assert.equal(clientExtension.settings, undefined);
 assert.equal(clientExtension.resourceOperations, undefined);
-assert.equal(clientExtension.knowledgeMentions, undefined);
+assert.equal(clientExtension.contextMentions, undefined);
+assert.equal(clientExtension.renderContextReference, undefined);
 assert.equal(clientExtension.tableMetadataSearch, undefined);
 assert.deepEqual(clientExtension.requestPolicy, {
   permissionDeniedInteraction: 'prompt-application',
@@ -28,16 +29,16 @@ const coreNavigation = [
 ];
 const extensionNavigation: ClientNavigationContribution[] = [
   {
-    id: 'knowledge',
-    icon: 'knowledge-icon',
-    name: 'Knowledge',
-    component: 'knowledge-panel',
+    id: 'reports',
+    icon: 'reports-icon',
+    name: 'Reports',
+    component: 'reports-panel',
   },
 ];
 
 assert.deepEqual(
   mergeNavigationItems(coreNavigation, extensionNavigation).map((item) => item.key),
-  ['workspace', 'knowledge'],
+  ['workspace', 'reports'],
 );
 assert.throws(
   () => mergeNavigationItems(coreNavigation, [{ ...extensionNavigation[0], id: 'workspace' }]),
@@ -45,7 +46,7 @@ assert.throws(
 );
 assert.throws(
   () => mergeNavigationItems(coreNavigation, [...extensionNavigation, extensionNavigation[0]]),
-  /Duplicate client contribution id: knowledge/,
+  /Duplicate client contribution id: reports/,
 );
 
 for (const host of ['src/blocks/Setting/index.tsx', 'src/pages/main/CommunityMainPage.tsx']) {

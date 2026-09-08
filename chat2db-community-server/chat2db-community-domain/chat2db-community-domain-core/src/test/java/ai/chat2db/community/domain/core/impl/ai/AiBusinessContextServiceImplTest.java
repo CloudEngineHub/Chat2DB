@@ -10,9 +10,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AiBusinessContextServiceImplTest {
 
     @Test
-    void communityDoesNotResolveEnterpriseKnowledge() {
+    void defaultResolverReturnsNoAdditionalContext() {
         AiBusinessContextResult result = new AiBusinessContextServiceImpl().resolve(new AiBusinessContextBuildRequest());
         assertNull(result.getStructuredContext());
-        assertTrue(result.getSelectedKnowledge().isEmpty());
+        assertTrue(result.getContextReferences().isEmpty());
     }
 }

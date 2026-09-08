@@ -7,10 +7,10 @@ import ai.chat2db.community.web.api.model.request.ai.ChatRequest;
 import ai.chat2db.community.domain.api.model.ai.AiChatMessage;
 import ai.chat2db.community.domain.api.model.ai.AiChatSession;
 import ai.chat2db.community.domain.api.model.ai.AiBusinessContextResult;
+import ai.chat2db.community.domain.api.model.ai.AiContextReferenceSnapshot;
 import ai.chat2db.community.domain.api.model.ai.AiRuntimeModel;
 import ai.chat2db.community.domain.api.model.ai.ChatAttachment;
 import ai.chat2db.community.domain.api.model.request.ai.AiChatMessageAddRequest;
-import ai.chat2db.community.domain.api.model.request.ai.AiSelectedKnowledge;
 import ai.chat2db.community.domain.api.model.runtime.ConnectionProfile;
 import ai.chat2db.community.domain.api.model.request.runtime.DbConnectionContextRequest;
 import ai.chat2db.community.domain.api.service.db.IDbConnectionContextService;
@@ -322,7 +322,7 @@ public class AiChatStreamAdapter implements IAiChatStreamService<ChatRequest, Ss
         AiBusinessContextResult businessContext = businessContextService.resolve(
                 chatConverter.toBusinessContextParam(request));
         String sessionId = shouldPersistHistory(request)
-                ? prepareSession(request, userId, businessContext.getSelectedKnowledge()) : null;
+                ? prepareSession(request, userId, businessContext.getContextReferences()) : null;
         Context capturedContext = ContextUtils.queryContext();
         List<ChatMessage> effectiveHistory = resolveHistory(request, sessionId, userId);
         String structuredBusinessContext = businessContext.getStructuredContext();
@@ -394,12 +394,12 @@ public class AiChatStreamAdapter implements IAiChatStreamService<ChatRequest, Ss
 
 
     private String prepareSession(ChatRequest request, Long userId,
-                                  List<AiSelectedKnowledge> selectedKnowledgeSnapshot) {
+                                  List<AiContextReferenceSnapshot> contextReferenceSnapshots) {
         if (StringUtils.isNotBlank(request.getSessionId())) {
             String sessionId = request.getSessionId().trim();
             try {
                 historyService.addMessage(addMessageRequest(sessionId, userId, "user", request.getInput(), null,
-                        request.getAttachments(), selectedKnowledgeSnapshot));
+                        request.getAttachments(), contextReferenceSnapshots));
             } catch (Exception e) {
                 log.error("save user message failed, sessionId={}", sessionId, e);
             }
@@ -408,7 +408,7 @@ public class AiChatStreamAdapter implements IAiChatStreamService<ChatRequest, Ss
         try {
             AiChatSession session = historyService.createSession(userId, request.getInput());
             historyService.addMessage(addMessageRequest(session.getId(), userId, "user", request.getInput(), null,
-                    request.getAttachments(), selectedKnowledgeSnapshot));
+                    request.getAttachments(), contextReferenceSnapshots));
             return session.getId();
         } catch (Exception e) {
             log.error("create session failed", e);
@@ -418,7 +418,7 @@ public class AiChatStreamAdapter implements IAiChatStreamService<ChatRequest, Ss
 
     private AiChatMessageAddRequest addMessageRequest(String sessionId, Long userId, String role, String content,
                                                       String reasoningContent, List<ChatAttachment> attachments,
-                                                      List<AiSelectedKnowledge> selectedKnowledge) {
+                                                      List<AiContextReferenceSnapshot> contextReferences) {
         AiChatMessageAddRequest request = new AiChatMessageAddRequest();
         request.setSessionId(sessionId);
         request.setUserId(userId);
@@ -426,7 +426,7 @@ public class AiChatStreamAdapter implements IAiChatStreamService<ChatRequest, Ss
         request.setContent(content);
         request.setReasoningContent(reasoningContent);
         request.setAttachments(attachments);
-        request.setSelectedKnowledge(selectedKnowledge);
+        request.setContextReferences(contextReferences);
         return request;
     }
 

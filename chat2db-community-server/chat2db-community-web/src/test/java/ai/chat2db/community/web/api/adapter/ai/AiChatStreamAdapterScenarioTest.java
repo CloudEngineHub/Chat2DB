@@ -2,8 +2,8 @@ package ai.chat2db.community.web.api.adapter.ai;
 
 import ai.chat2db.community.domain.api.model.ai.AiChatMessage;
 import ai.chat2db.community.domain.api.model.ai.AiChatSession;
+import ai.chat2db.community.domain.api.model.ai.AiContextReferenceSnapshot;
 import ai.chat2db.community.domain.api.model.request.ai.AiChatMessageAddRequest;
-import ai.chat2db.community.domain.api.model.request.ai.AiSelectedKnowledge;
 import ai.chat2db.community.domain.api.service.ai.IAiChatHistoryService;
 import ai.chat2db.community.web.api.model.request.ai.ChatRequest;
 import org.junit.jupiter.api.Test;
@@ -45,41 +45,43 @@ class AiChatStreamAdapterScenarioTest {
 
     @Test
     void sensitiveLogTextIsReducedToLengthOnly() {
-        String secretPrompt = "enterprise knowledge and customer values";
+        String secretPrompt = "private context and customer values";
 
         assertEquals(secretPrompt.length(), AiChatStreamAdapter.textLength(secretPrompt));
         assertEquals(0, AiChatStreamAdapter.textLength(null));
     }
 
     @Test
-    void persistsServerResolvedKnowledgeSnapshotWithUserMessage() throws Exception {
+    void persistsServerResolvedContextSnapshotWithUserMessage() throws Exception {
         RecordingHistoryService historyService = new RecordingHistoryService();
         AiChatStreamAdapter adapter = adapter(historyService);
         ChatRequest request = existingSessionRequest();
-        AiSelectedKnowledge knowledge = new AiSelectedKnowledge();
-        knowledge.setId(186L);
-        knowledge.setType("KNOWLEDGE_TERM");
-        knowledge.setKey("三全水饺");
-        knowledge.setValue("速冻水饺商品集合");
+        AiContextReferenceSnapshot reference = new AiContextReferenceSnapshot();
+        reference.setProvider("catalog");
+        reference.setId("186");
+        reference.setType("term");
+        reference.setLabel("product family");
+        reference.setDescription("selected product family");
 
-        invokePrepareSession(adapter, request, List.of(knowledge));
+        invokePrepareSession(adapter, request, List.of(reference));
 
         assertEquals(1, historyService.addedMessages.size());
-        AiSelectedKnowledge persisted = historyService.addedMessages.get(0).getSelectedKnowledge().get(0);
-        assertEquals(186L, persisted.getId());
-        assertEquals("KNOWLEDGE_TERM", persisted.getType());
-        assertEquals("三全水饺", persisted.getKey());
-        assertEquals("速冻水饺商品集合", persisted.getValue());
+        AiContextReferenceSnapshot persisted = historyService.addedMessages.get(0).getContextReferences().get(0);
+        assertEquals("catalog", persisted.getProvider());
+        assertEquals("186", persisted.getId());
+        assertEquals("term", persisted.getType());
+        assertEquals("product family", persisted.getLabel());
+        assertEquals("selected product family", persisted.getDescription());
     }
 
     @Test
-    void doesNotInventKnowledgeWhenResolvedSnapshotIsEmpty() throws Exception {
+    void doesNotInventContextWhenResolvedSnapshotIsEmpty() throws Exception {
         RecordingHistoryService historyService = new RecordingHistoryService();
 
         invokePrepareSession(adapter(historyService), existingSessionRequest(), List.of());
 
         assertEquals(1, historyService.addedMessages.size());
-        assertTrue(historyService.addedMessages.get(0).getSelectedKnowledge().isEmpty());
+        assertTrue(historyService.addedMessages.get(0).getContextReferences().isEmpty());
     }
 
     private void assertPromptContains(String questionType, String expected) {
@@ -107,11 +109,11 @@ class AiChatStreamAdapterScenarioTest {
     }
 
     private void invokePrepareSession(AiChatStreamAdapter adapter, ChatRequest request,
-                                      List<AiSelectedKnowledge> selectedKnowledge) throws Exception {
+                                      List<AiContextReferenceSnapshot> contextReferences) throws Exception {
         Method method = AiChatStreamAdapter.class.getDeclaredMethod(
                 "prepareSession", ChatRequest.class, Long.class, List.class);
         method.setAccessible(true);
-        method.invoke(adapter, request, 35L, selectedKnowledge);
+        method.invoke(adapter, request, 35L, contextReferences);
     }
 
     private static class RecordingHistoryService implements IAiChatHistoryService {

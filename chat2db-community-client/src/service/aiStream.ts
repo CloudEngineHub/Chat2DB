@@ -23,13 +23,12 @@ export interface IChatSession {
   gmtModified: string;
 }
 
-export type KnowledgeSelectionType = 'KNOWLEDGE_TERM' | 'BUSINESS_LOGIC' | 'SQL_TEMPLATE';
-
-export interface ISelectedKnowledge {
-  id: number;
-  type: KnowledgeSelectionType;
-  key: string;
-  value?: string;
+export interface IChatContextReference {
+  provider: string;
+  id: string;
+  type: string;
+  label: string;
+  description?: string;
 }
 
 export interface IChatMessage {
@@ -39,7 +38,7 @@ export interface IChatMessage {
   content: string;
   reasoningContent?: string;
   attachments?: IChatAttachment[];
-  selectedKnowledge?: ISelectedKnowledge[];
+  contextReferences?: IChatContextReference[];
   gmtCreate: string;
 }
 

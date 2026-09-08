@@ -58,14 +58,21 @@ export interface ResourceOperationRequest {
 
 export type ResourceOperationCapabilities = Readonly<Record<ResourceOperation, boolean>>;
 
-export interface KnowledgeMentionCandidate {
-  id: number;
-  type: 'KNOWLEDGE_TERM' | 'BUSINESS_LOGIC' | 'SQL_TEMPLATE';
-  key: string;
-  value: string;
+export interface AiContextReference {
+  provider: string;
+  id: string;
+  type: string;
+  label: string;
+  description?: string;
 }
 
-export interface KnowledgeMentionRequest {
+export interface AiContextMentionCandidate extends AiContextReference {
+  icon?: ReactNode;
+  extra?: ReactNode;
+  preview?: ReactNode;
+}
+
+export interface AiContextMentionRequest {
   searchKey?: string;
   inputText?: string;
   dataSourceId?: number;
@@ -75,8 +82,8 @@ export interface KnowledgeMentionRequest {
   pageSize?: number;
 }
 
-export interface KnowledgeMentionPage {
-  data: readonly KnowledgeMentionCandidate[];
+export interface AiContextMentionPage {
+  data: readonly AiContextMentionCandidate[];
   pageNo: number;
   pageSize: number;
   total: number;
@@ -130,7 +137,8 @@ export interface ClientExtension {
   resourceOperations?: (
     request: ResourceOperationRequest,
   ) => Promise<ResourceOperationCapabilities>;
-  knowledgeMentions?: (request: KnowledgeMentionRequest) => Promise<KnowledgeMentionPage>;
+  contextMentions?: (request: AiContextMentionRequest) => Promise<AiContextMentionPage>;
+  renderContextReference?: (reference: AiContextReference) => ReactNode;
   tableMetadataSearch?: (request: TableMetadataSearchRequest) => Promise<readonly TableMetadataSearchResult[]>;
   dashboardActions?: (context: DashboardActionContext) => ReactNode;
   openPermissionApplication?: (request: PermissionApplicationRequest) => void;
