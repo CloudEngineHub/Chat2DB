@@ -17,7 +17,6 @@ import {
   IMPORT_TARGET_TABLE_REFRESH_EVENT,
   shouldRefreshImportTargetTable,
 } from '@/store/importExport/taskCenterUtils';
-import { useGlobalStore } from '@/store/global';
 
 interface IProps {
   className?: string;
@@ -35,8 +34,6 @@ export default memo<IProps>((_props) => {
   const [taskId, setTaskId] = useState<number>();
   const [taskDetails, setTaskDetails] = useState<ImportExportTaskDetails>();
   const [importFile, setImportFile] = useState<FileUrl>();
-  const [cancelSubmitting, setCancelSubmitting] = useState(false);
-  const openUnifiedConfirmationModal = useGlobalStore((state) => state.openUnifiedConfirmationModal);
 
   const { importExportDataBoundInfo, setImportExportDataBoundInfo, getTaskList } = useImportExportStore((state) => {
     return {
@@ -52,7 +49,6 @@ export default memo<IProps>((_props) => {
       setTaskDetails(undefined);
       previousTaskDetailsRef.current = undefined;
       setImportFile(undefined);
-      setCancelSubmitting(false);
     }
   }, [importExportDataBoundInfo]);
 
@@ -101,21 +97,6 @@ export default memo<IProps>((_props) => {
     window.open(`/api/tasks/artifact?taskId=${taskDetails.id}`, '_blank');
   };
 
-  const handleCancelTask = () => {
-    if (!taskDetails || cancelSubmitting) return;
-    openUnifiedConfirmationModal({
-      title: i18n('workspace.task.cancel.confirmTitle'),
-      content: i18n('workspace.task.cancel.confirm', taskDetails.name),
-      onOk: () => {
-        setCancelSubmitting(true);
-        return importExportServices
-          .cancelTask({ taskId: taskDetails.id })
-          .then(() => getTaskList())
-          .finally(() => setCancelSubmitting(false));
-      },
-    });
-  };
-
   const logRenderFooter = () => (
     <ModalFooterButton
       footerLeft={
@@ -137,12 +118,6 @@ export default memo<IProps>((_props) => {
           >
             {i18n('common.button.close')}
           </Button>
-          {taskDetails &&
-            [ImportExportTaskStatus.PENDING, ImportExportTaskStatus.RUNNING].includes(taskDetails.status) && (
-              <Button danger loading={cancelSubmitting} onClick={handleCancelTask}>
-                {i18n('common.button.cancel')}
-              </Button>
-            )}
         </>
       }
     />

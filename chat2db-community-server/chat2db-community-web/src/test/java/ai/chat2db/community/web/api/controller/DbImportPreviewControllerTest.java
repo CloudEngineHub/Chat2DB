@@ -202,11 +202,6 @@ class DbImportPreviewControllerTest {
         }
 
         @Override
-        public boolean cancel(Long taskId) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
         public int activeTaskCount() {
             throw new UnsupportedOperationException();
         }

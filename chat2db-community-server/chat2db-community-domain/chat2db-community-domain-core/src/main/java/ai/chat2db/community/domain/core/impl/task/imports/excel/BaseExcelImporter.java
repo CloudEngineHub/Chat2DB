@@ -70,8 +70,6 @@ public abstract class BaseExcelImporter extends BaseImporter {
 
         private long skippedCount;
 
-        private long totalRows;
-
         private static final int BATCH_SIZE = 1000;
 
         private final IValueProcessor valueProcessor;
@@ -133,7 +131,6 @@ public abstract class BaseExcelImporter extends BaseImporter {
             this.taskContext.checkCancelled();
             if (data == null || data.isEmpty()) {
                 skippedCount++;
-                totalRows++;
                 return;
             }
             List<String> values = getValueList(data);
@@ -142,14 +139,12 @@ public abstract class BaseExcelImporter extends BaseImporter {
 
             if (StringUtils.isBlank(sql)) {
                 skippedCount++;
-                totalRows++;
                 return;
             }
             if (sqlList == null) {
                 sqlList = new ArrayList<>();
             }
             sqlList.add(sql);
-            totalRows++;
             if (sqlList.size() >= BATCH_SIZE) {
                 executeBatchInsert();
             } else {
@@ -225,11 +220,6 @@ public abstract class BaseExcelImporter extends BaseImporter {
         public void doAfterAllAnalysed(AnalysisContext context) {
             this.taskContext.checkCancelled();
             executeBatchInsert();
-            taskContext.logInfo("IMPORT_SUMMARY", "Data import completed", Map.of(
-                    "totalRows", totalRows,
-                    "successCount", successCount,
-                    "failedCount", 0L,
-                    "skippedCount", skippedCount));
         }
 
         private void executeBatchInsert() {
