@@ -30,6 +30,7 @@ interface IProps {
  */
 const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableName, file, onSubmitted }: IProps) => {
   const { styles, cx } = useStyles();
+  const [modal, modalContextHolder] = Modal.useModal();
   const [preview, setPreview] = useState<IImportPreview | null>(null);
   const [fileId, setFileId] = useState<string>();
   const [loading, setLoading] = useState(false);
@@ -196,7 +197,7 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
   const execute = () => {
     const duplicateMapping = Object.values(duplicateMappings)[0];
     if (duplicateMapping) {
-      Modal.error({
+      modal.error({
         title: i18n('workspace.importExport.duplicateMappingTitle'),
         content: i18n(
           'workspace.importExport.duplicateMappingContent',
@@ -207,7 +208,7 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
       return;
     }
     if (blockedColumns.length > 0) {
-      Modal.error({
+      modal.error({
         title: i18n('workspace.importExport.requiredUnmapped'),
         content: blockedColumns.map((c) => `${c.name} (${c.dataType})`).join(', '),
       });
@@ -238,6 +239,7 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
 
   return (
     <div className={styles.container}>
+      {modalContextHolder}
       {error && <div className={styles.error}>{error}</div>}
       {preview && (
         <>

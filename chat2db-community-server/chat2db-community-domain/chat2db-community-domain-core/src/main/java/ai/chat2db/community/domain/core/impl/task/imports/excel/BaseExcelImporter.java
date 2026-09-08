@@ -6,9 +6,7 @@ import ai.chat2db.community.domain.api.model.task.TaskConstants;
 import ai.chat2db.community.domain.api.model.task.TaskCancelledException;
 import ai.chat2db.community.domain.api.model.task.ImportTaskSpec;
 import ai.chat2db.community.domain.api.model.task.ImportColumnMapping;
-import ai.chat2db.community.domain.api.model.task.TaskErrorCode;
 import ai.chat2db.community.domain.api.model.task.TaskEventCode;
-import ai.chat2db.community.domain.api.model.task.TaskExecutionException;
 import ai.chat2db.community.domain.api.model.task.TaskStage;
 import ai.chat2db.community.domain.api.service.task.TaskExecutionContext;
 import ai.chat2db.spi.ISqlBuilder;
@@ -27,9 +25,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.File;
-import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Savepoint;
 import java.util.*;
 
 
@@ -40,91 +35,16 @@ public abstract class BaseExcelImporter extends BaseImporter {
         context.checkCancelled();
         ExcelTypeEnum excelType = getExcelType();
         NoModelDataListener noModelDataListener = new NoModelDataListener(spec, context, columns);
-        runInTransaction(() -> {
-            EasyExcel.read(new File(spec.getSourceFile()), noModelDataListener)
-                    .excelType(excelType)
-                    .sheet()
-                    .headRowNumber(1)
-                    .doRead();
-            context.checkCancelled();
-        });
+        EasyExcel.read(new File(spec.getSourceFile()), noModelDataListener)
+                .excelType(excelType)
+                .sheet()
+                .headRowNumber(1)
+                .doRead();
+        context.checkCancelled();
 
     }
 
     protected abstract ExcelTypeEnum getExcelType();
-
-    private void runInTransaction(Runnable importAction) {
-        Connection connection = Chat2DBContext.getConnection();
-        boolean autoCommit;
-        Savepoint savepoint = null;
-        try {
-            autoCommit = connection.getAutoCommit();
-            if (autoCommit) {
-                connection.setAutoCommit(false);
-            } else {
-                savepoint = connection.setSavepoint();
-            }
-        } catch (SQLException e) {
-            throw new TaskExecutionException(TaskErrorCode.IMPORT_FAILED.name(),
-                    "Could not start import transaction", e);
-        }
-
-        RuntimeException failure = null;
-        boolean committed = false;
-        try {
-            importAction.run();
-            if (savepoint != null) {
-                connection.releaseSavepoint(savepoint);
-            } else {
-                connection.commit();
-            }
-            committed = true;
-        } catch (RuntimeException e) {
-            failure = e;
-            throw e;
-        } catch (Exception e) {
-            failure = new TaskExecutionException(TaskErrorCode.IMPORT_FAILED.name(),
-                    "Could not import data file", e);
-            throw failure;
-        } finally {
-            if (!committed) {
-                rollbackImport(connection, savepoint, failure);
-            }
-            if (savepoint == null) {
-                restoreAutoCommit(connection, failure);
-            }
-        }
-    }
-
-    private void rollbackImport(Connection connection, Savepoint savepoint, RuntimeException failure) {
-        try {
-            if (savepoint != null) {
-                connection.rollback(savepoint);
-            } else {
-                connection.rollback();
-            }
-        } catch (Exception rollbackFailure) {
-            if (failure != null) {
-                failure.addSuppressed(rollbackFailure);
-                return;
-            }
-            throw new TaskExecutionException(TaskErrorCode.IMPORT_FAILED.name(),
-                    "Could not roll back failed import", rollbackFailure);
-        }
-    }
-
-    private void restoreAutoCommit(Connection connection, RuntimeException failure) {
-        try {
-            connection.setAutoCommit(true);
-        } catch (SQLException restoreFailure) {
-            if (failure != null) {
-                failure.addSuppressed(restoreFailure);
-                return;
-            }
-            throw new TaskExecutionException(TaskErrorCode.IMPORT_FAILED.name(),
-                    "Could not restore import connection", restoreFailure);
-        }
-    }
 
 
     public class NoModelDataListener extends AnalysisEventListener<Map<Integer, String>> {

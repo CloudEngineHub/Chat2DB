@@ -6,7 +6,6 @@ import ai.chat2db.community.domain.api.model.metadata.TableColumn;
 import ai.chat2db.community.domain.api.model.task.ArtifactDraft;
 import ai.chat2db.community.domain.api.model.task.ImportColumnMapping;
 import ai.chat2db.community.domain.api.model.task.ImportTaskSpec;
-import ai.chat2db.community.domain.api.model.task.TaskExecutionException;
 import ai.chat2db.community.domain.api.model.task.TaskTargetSnapshot;
 import ai.chat2db.community.domain.api.service.task.TaskCancelable;
 import ai.chat2db.community.domain.api.service.task.TaskExecutionContext;
@@ -32,7 +31,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class CSVImporterColumnMappingTest {
 
@@ -76,16 +74,19 @@ class CSVImporterColumnMappingTest {
     }
 
     @Test
-    void mappedXlsxImportOmitsDefaultColumnsAndExecutesRows(@TempDir Path directory)
+    void explicitMappingOmitsDefaultColumnsAndExecutesRows(@TempDir Path directory)
             throws Exception {
         Path input = directory.resolve("orders.xlsx");
         EasyExcel.write(input.toFile())
-                .head(List.of(List.of("Name")))
+                .head(List.of(List.of("Full Name")))
                 .sheet()
                 .doWrite(List.of(List.of("Alice"), List.of("Bob")));
         ImportTaskSpec spec = ImportTaskSpec.builder()
                 .sourceFile(input.toString())
                 .target(TaskTargetSnapshot.builder().tableName("orders").build())
+                .columnMappings(List.of(ImportColumnMapping.builder()
+                        .sourceColumn("Full Name").targetColumn("name").build()))
+                .unmappedTarget("DEFAULT")
                 .build();
         RecordingTaskExecutionContext taskContext = new RecordingTaskExecutionContext();
 
@@ -103,35 +104,6 @@ class CSVImporterColumnMappingTest {
             assertEquals("Bob", resultSet.getString("name"));
             assertEquals("NEW", resultSet.getString("status"));
             assertEquals(null, resultSet.getString("note"));
-        }
-    }
-
-    @Test
-    void nonMappedImportRollsBackWholeFileWhenBatchFails(@TempDir Path directory)
-            throws Exception {
-        Path input = directory.resolve("orders-invalid.xlsx");
-        EasyExcel.write(input.toFile())
-                .head(List.of(List.of("Name")))
-                .sheet()
-                .doWrite(List.of(List.of("Alice"), List.of("x".repeat(80))));
-        ImportTaskSpec spec = ImportTaskSpec.builder()
-                .sourceFile(input.toString())
-                .target(TaskTargetSnapshot.builder().tableName("orders").build())
-                .columnMappings(List.of(ImportColumnMapping.builder()
-                        .sourceColumn("Name").targetColumn("name").build()))
-                .unmappedTarget("DEFAULT")
-                .build();
-        RecordingTaskExecutionContext taskContext = new RecordingTaskExecutionContext();
-
-        TaskExecutionException error = assertThrows(TaskExecutionException.class,
-                () -> new XLSXImporter().doImportData(spec, taskContext, columns()));
-
-        assertEquals("Could not execute imported SQL", error.publicMessage());
-        assertEquals(List.of("IMPORT_BATCH_FAILED"), taskContext.errorCodes(), taskContext.events().toString());
-        try (Statement statement = connection.createStatement();
-                ResultSet resultSet = statement.executeQuery("SELECT COUNT(*) FROM orders")) {
-            resultSet.next();
-            assertEquals(0, resultSet.getInt(1));
         }
     }
 
@@ -171,24 +143,12 @@ class CSVImporterColumnMappingTest {
 
         private final List<String> events = new ArrayList<>();
 
-        private final List<String> errorCodes = new ArrayList<>();
-
-        private Map<String, Object> summaryDetails = Map.of();
-
         private List<Integer> batchStatementCounts() {
             return batchStatementCounts;
         }
 
         private List<String> events() {
             return events;
-        }
-
-        private List<String> errorCodes() {
-            return errorCodes;
-        }
-
-        private Map<String, Object> summaryDetails() {
-            return summaryDetails;
         }
 
         @Override
@@ -205,8 +165,6 @@ class CSVImporterColumnMappingTest {
             events.add(code + ":" + message + ":" + details);
             if ("BATCH_EXECUTED".equals(code)) {
                 batchStatementCounts.add((Integer) details.get("statementCount"));
-            } else if ("IMPORT_SUMMARY".equals(code)) {
-                summaryDetails = details;
             }
         }
 
@@ -218,7 +176,6 @@ class CSVImporterColumnMappingTest {
         @Override
         public void logError(String code, String message, Map<String, Object> details) {
             events.add(code + ":" + message + ":" + details);
-            errorCodes.add(code);
         }
 
         @Override
