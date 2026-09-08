@@ -26,8 +26,6 @@ public interface TaskService {
 
     void delete(Long taskId);
 
-    boolean cancel(Long taskId);
-
     int activeTaskCount();
 
     void prepareForUserExit();

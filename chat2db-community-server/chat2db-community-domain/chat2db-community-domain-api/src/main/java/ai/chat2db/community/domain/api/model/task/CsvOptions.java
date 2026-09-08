@@ -26,10 +26,6 @@ public class CsvOptions {
     public static final String DEFAULT_ESCAPE = "\"";
     public static final String DEFAULT_NEWLINE = "LF";
 
-    private static final Set<String> SUPPORTED_ENCODINGS = Set.of(
-            AUTO_ENCODING, DEFAULT_ENCODING, "UTF-16LE", "UTF-16BE", "GB18030", "ISO-8859-1",
-            "WINDOWS-1252", "SHIFT_JIS", "BIG5");
-    private static final Set<String> SUPPORTED_DELIMITERS = Set.of(",", ";", "\t", "|");
     private static final Set<String> SUPPORTED_NEWLINES = Set.of("LF", "CRLF", "CR");
 
     private String encoding;
@@ -82,8 +78,7 @@ public class CsvOptions {
         } catch (Exception e) {
             throw new BusinessException("import.preview.invalidEncoding", new Object[]{encoding}, e);
         }
-        if (!SUPPORTED_ENCODINGS.contains(options.encoding)
-                || !SUPPORTED_DELIMITERS.contains(options.delimiter)
+        if (!isSingleTextCharacter(options.delimiter)
                 || !SUPPORTED_NEWLINES.contains(options.newline)
                 || !isSingleTextCharacter(options.quote)
                 || !isSingleTextCharacter(options.escape)

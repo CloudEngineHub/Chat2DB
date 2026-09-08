@@ -1,5 +1,6 @@
 package ai.chat2db.community.domain.core.impl.db;
 
+import ai.chat2db.community.domain.api.model.task.CsvOptions;
 import ai.chat2db.community.tools.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 
@@ -49,9 +50,10 @@ class CsvParserTest {
         assertEquals("import.preview.invalidCsvOptions",
                 assertThrows(BusinessException.class,
                         () -> new CsvParser("UTF-8", ",", ",", ",", true, true)).getCode());
-        assertEquals("import.preview.invalidCsvOptions",
+        assertEquals("import.preview.invalidEncoding",
                 assertThrows(BusinessException.class,
-                        () -> new CsvParser("UTF-16", ",", "\"", "\"", true, true)).getCode());
+                        () -> new CsvParser("NO_SUCH_CHARSET", ",", "\"", "\"", true, true)).getCode());
+        assertEquals("UTF-16", CsvOptions.builder().encoding("UTF-16").build().validate().getEncoding());
     }
 
     @Test

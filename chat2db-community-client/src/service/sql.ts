@@ -1,4 +1,5 @@
 import createRequest from './base';
+import { ImportUnmappedTarget } from '@/constants/importExport';
 import {
   IPageResponse,
   IPageParams,
@@ -430,25 +431,29 @@ const truncateTable = createRequest<ITableParams, void>('/api/rdb/table/truncate
 
 export interface ICopyTableParams extends ITableParams {
   copyData: boolean;
+  newName: string;
 }
+
+const prepareCopyTable = createRequest<ITableParams, string>('/api/rdb/table/copy/prepare', { method: 'get' });
 
 // Copy table
 const copyTable = createRequest<ICopyTableParams, void>('/api/rdb/table/copy', { method: 'post' });
 
-
-/** Import preview and column mapping (MYSQL-IMPORT-001). */
+/** Database-independent import preview and column mapping. */
 export interface IImportPreview {
-  sourceColumns: { name: string; sampleValues: { value: string; type: string }[] }[];
+  sourceColumns: string[];
+  previewData: string[][];
+  targetTableName: string;
   targetColumns: {
     name: string;
     dataType: string;
     nullable: boolean;
     autoIncrement: boolean;
     defaultValue: string | null;
+    comment: string | null;
   }[];
   suggestedMapping: { sourceColumn: string; targetColumn: string }[];
   previewLimit: number;
-  previewRows: number;
 }
 
 export interface IImportTaskSubmitResult {
@@ -460,10 +465,20 @@ export interface ICsvOptions {
   delimiter: string;
   quote: string;
   escape: string;
-  newline: string;
+  newline: 'LF' | 'CRLF' | 'CR';
   hasHeader: boolean;
   emptyAsNull: boolean;
 }
+
+const uploadImportFile = createRequest<{ file: File }, string>('/api/rdb/import_preview/upload', {
+  method: 'post',
+  contentType: 'formData',
+});
+
+const stageDesktopImportFile = createRequest<
+  { sourceFile: string; originalFileName: string },
+  string
+>('/api/rdb/import_preview/upload_local', { method: 'post' });
 
 const getImportPreview = createRequest<
   {
@@ -472,10 +487,10 @@ const getImportPreview = createRequest<
     schemaName?: string;
     tableName: string;
     fileId: string;
-    csvOptions?: string;
+    csvOptions?: ICsvOptions;
   },
   IImportPreview
->('/api/rdb/import_preview/preview', { method: 'post', requestBody: true });
+>('/api/rdb/import_preview/preview', { method: 'post' });
 
 const executeImportWithMapping = createRequest<
   {
@@ -485,17 +500,11 @@ const executeImportWithMapping = createRequest<
     tableName: string;
     fileId: string;
     mappings: { sourceColumn: string | null; targetColumn: string }[];
-    unmappedTarget: 'DEFAULT' | 'NULL';
+    unmappedTarget: ImportUnmappedTarget;
     csvOptions?: ICsvOptions;
   },
   IImportTaskSubmitResult
->('/api/rdb/import_preview/execute', { method: 'post', requestBody: true });
-
-const uploadImportFile = createRequest<{ file: File }, string>('/api/rdb/import_preview/upload', {
-  method: 'post',
-  contentType: 'formData',
-});
-
+>('/api/rdb/import_preview/execute', { method: 'post' });
 /** Active InnoDB transactions (MYSQL-OPS-002). */
 export interface IActiveTransactionItem {
   trxId: string | null;
@@ -566,6 +575,7 @@ const getDataSourceList = createRequest<IPageParams, IPageResponse<IConnectionDe
 
 export default {
   copyTable,
+  prepareCopyTable,
   downloadLargeCellValue,
   getLargeCellValue,
   truncateTable,
@@ -616,6 +626,7 @@ export default {
   getImportPreview,
   executeImportWithMapping,
   uploadImportFile,
+  stageDesktopImportFile,
   getActiveTransactionList,
   getDataSourceList,
 };

@@ -118,12 +118,12 @@ public class ClickHouseDBManager extends DefaultDBManager implements IDbManager 
 
     @Override
     public String dropTable(Connection connection, String databaseName, String schemaName, String tableName) {
-        return "DROP TABLE IF EXISTS " + qualifiedTableName(databaseName, schemaName, tableName, false);
+        return "DROP TABLE IF EXISTS " + qualifiedTableName(databaseName, schemaName, tableName);
     }
 
     @Override
     public String truncateTable(Connection connection, String databaseName, String schemaName, String tableName) {
-        return "TRUNCATE TABLE " + qualifiedTableName(databaseName, schemaName, tableName, true);
+        return "TRUNCATE TABLE " + qualifiedTableName(databaseName, schemaName, tableName);
     }
 
     @Override
@@ -135,8 +135,8 @@ public class ClickHouseDBManager extends DefaultDBManager implements IDbManager 
 
     static List<String> buildCopyTableStatements(String databaseName, String schemaName, String tableName,
                                                   String newTableName, boolean copyData) {
-        String source = qualifiedTableName(databaseName, schemaName, tableName, true);
-        String target = qualifiedTableName(databaseName, schemaName, newTableName, true);
+        String source = qualifiedTableName(databaseName, schemaName, tableName);
+        String target = qualifiedTableName(databaseName, schemaName, newTableName);
         List<String> statements = new ArrayList<>();
         statements.add("CREATE TABLE " + target + " AS " + source);
         if (copyData) {
@@ -145,21 +145,13 @@ public class ClickHouseDBManager extends DefaultDBManager implements IDbManager 
         return statements;
     }
 
-    private static String qualifiedTableName(String databaseName, String schemaName, String tableName,
-                                             boolean normalizeQuotedTable) {
+    private static String qualifiedTableName(String databaseName, String schemaName, String tableName) {
         String qualifier = StringUtils.isNotBlank(schemaName) ? schemaName : databaseName;
-        String normalizedTable = normalizeQuotedTable ? normalizeQuotedIdentifier(tableName) : tableName;
         if (StringUtils.isBlank(qualifier)) {
-            return ClickHouseIdentifierProcessor.INSTANCE.quoteIdentifierAlways(normalizedTable);
+            return ClickHouseIdentifierProcessor.INSTANCE.quoteIdentifierAlways(tableName);
         }
         return ClickHouseIdentifierProcessor.INSTANCE.quoteIdentifierAlways(qualifier)
-                + "." + ClickHouseIdentifierProcessor.INSTANCE.quoteIdentifierAlways(normalizedTable);
+                + "." + ClickHouseIdentifierProcessor.INSTANCE.quoteIdentifierAlways(tableName);
     }
 
-    private static String normalizeQuotedIdentifier(String identifier) {
-        if (ClickHouseIdentifierProcessor.INSTANCE.isQuoteIdentifier(identifier)) {
-            return ClickHouseIdentifierProcessor.INSTANCE.removeIdentifierQuote(identifier);
-        }
-        return identifier;
-    }
 }

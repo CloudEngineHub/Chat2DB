@@ -13,7 +13,6 @@ import ai.chat2db.community.web.api.model.request.task.TaskImportRequest;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -125,8 +124,6 @@ class TaskWebConverterTest {
                 .build();
         TaskImportRequest importRequest = importRequest(TaskType.DATA_FILE_IMPORT.name());
         importRequest.setCsvOptions(csvOptions);
-        importRequest.setMappings(List.of(Map.of("sourceColumn", "note", "targetColumn", "note")));
-        importRequest.setUnmappedTarget("NULL");
         TaskExportRequest exportRequest = exportRequest(TaskType.TABLE_DATA_EXPORT.name(), "app", "orders");
         exportRequest.setCsvOptions(csvOptions);
 
@@ -135,9 +132,6 @@ class TaskWebConverterTest {
 
         assertEquals("AUTO", importSpec.getCsvOptions().getEncoding());
         assertEquals("\\", importSpec.getCsvOptions().getEscape());
-        assertEquals(List.of(Map.of("sourceColumn", "note", "targetColumn", "note")),
-                importSpec.getMappings());
-        assertEquals("NULL", importSpec.getUnmappedTarget());
         assertEquals("CRLF", exportSpec.getCsvOptions().getNewline());
     }
 

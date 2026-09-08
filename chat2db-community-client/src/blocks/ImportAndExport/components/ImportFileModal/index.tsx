@@ -12,19 +12,20 @@ import { ImportExportTaskDetails } from '@/typings/importExport';
 import ImportMappingContent from '@/blocks/ImportAndExport/components/ImportMappingContent';
 import jcefApi from '@/jcef';
 import { isDesktop } from '@/utils/env';
-import type { FileUrl } from '@/components/UploadLocalFile';
+import sqlService from '@/service/sql';
+import { prepareWebImportParams } from './submission';
 import {
   IMPORT_TARGET_TABLE_REFRESH_EVENT,
   shouldRefreshImportTargetTable,
 } from '@/store/importExport/taskCenterUtils';
-import { useGlobalStore } from '@/store/global';
+import type { FileUrl } from '@/components/UploadLocalFile';
 
 interface IProps {
   className?: string;
 }
 
 const isPreviewFile = (file?: FileUrl) => {
-  const name = file?.file?.name?.toLowerCase();
+  const name = (file?.fileName || file?.file?.name)?.toLowerCase();
   return name?.endsWith('.csv') || name?.endsWith('.xls') || name?.endsWith('.xlsx');
 };
 
@@ -35,8 +36,6 @@ export default memo<IProps>((_props) => {
   const [taskId, setTaskId] = useState<number>();
   const [taskDetails, setTaskDetails] = useState<ImportExportTaskDetails>();
   const [importFile, setImportFile] = useState<FileUrl>();
-  const [cancelSubmitting, setCancelSubmitting] = useState(false);
-  const openUnifiedConfirmationModal = useGlobalStore((state) => state.openUnifiedConfirmationModal);
 
   const { importExportDataBoundInfo, setImportExportDataBoundInfo, getTaskList } = useImportExportStore((state) => {
     return {
@@ -52,22 +51,28 @@ export default memo<IProps>((_props) => {
       setTaskDetails(undefined);
       previousTaskDetailsRef.current = undefined;
       setImportFile(undefined);
-      setCancelSubmitting(false);
     }
   }, [importExportDataBoundInfo]);
 
-  const handleRunSQl = () => {
+  const handleRunSQl = async () => {
     const params = importExportFileRef.current?.getValues();
     if (!params) return;
-    const request =
-      'sourceFile' in params ? importExportServices.submitImport(params) : importExportServices.submitExport(params);
-    request.then((res) => {
-      setTaskId(res.taskId);
-      getTaskList();
-    });
+    let response;
+    if ('sourceFile' in params) {
+      let importParams = params;
+      if (!isDesktop) {
+        if (!importFile?.file) return;
+        importParams = await prepareWebImportParams(importParams, importFile.file, sqlService.uploadImportFile);
+      }
+      response = await importExportServices.submitImport(importParams);
+    } else {
+      response = await importExportServices.submitExport(params);
+    }
+    setTaskId(response.taskId);
+    getTaskList();
   };
 
-  const handleImportFileChange = (file: FileUrl) => {
+  const handleImportFileChange = (file?: FileUrl) => {
     setImportFile(file);
   };
 
@@ -101,21 +106,6 @@ export default memo<IProps>((_props) => {
     window.open(`/api/tasks/artifact?taskId=${taskDetails.id}`, '_blank');
   };
 
-  const handleCancelTask = () => {
-    if (!taskDetails || cancelSubmitting) return;
-    openUnifiedConfirmationModal({
-      title: i18n('workspace.task.cancel.confirmTitle'),
-      content: i18n('workspace.task.cancel.confirm', taskDetails.name),
-      onOk: () => {
-        setCancelSubmitting(true);
-        return importExportServices
-          .cancelTask({ taskId: taskDetails.id })
-          .then(() => getTaskList())
-          .finally(() => setCancelSubmitting(false));
-      },
-    });
-  };
-
   const logRenderFooter = () => (
     <ModalFooterButton
       footerLeft={
@@ -137,12 +127,6 @@ export default memo<IProps>((_props) => {
           >
             {i18n('common.button.close')}
           </Button>
-          {taskDetails &&
-            [ImportExportTaskStatus.PENDING, ImportExportTaskStatus.RUNNING].includes(taskDetails.status) && (
-              <Button danger loading={cancelSubmitting} onClick={handleCancelTask}>
-                {i18n('common.button.cancel')}
-              </Button>
-            )}
         </>
       }
     />
@@ -164,19 +148,19 @@ export default memo<IProps>((_props) => {
 
   const importPreviewContext =
     importExportDataBoundInfo?.type === ImportExportType.IMPORT &&
-    !isDesktop &&
     isPreviewFile(importFile) &&
     importExportDataBoundInfo.dataSourceId != null &&
     importExportDataBoundInfo.databaseName != null &&
-    importFile?.file != null
+    importFile != null
       ? {
           dataSourceId: importExportDataBoundInfo.dataSourceId,
           databaseName: importExportDataBoundInfo.databaseName,
           schemaName: importExportDataBoundInfo.schemaName,
           tableName: importExportDataBoundInfo.tableName || '',
-          file: importFile.file,
+          file: importFile,
         }
       : null;
+  const showImportPreview = taskId == null && importPreviewContext != null;
 
   return (
     <Modal
@@ -189,9 +173,10 @@ export default memo<IProps>((_props) => {
           : i18n('workspace.menu.exportData')
       }
       headerIconCode={importExportDataBoundInfo?.type === ImportExportType.IMPORT ? 'icon-upload' : 'icon-download'}
-      headerBorder
+      width={showImportPreview ? 960 : undefined}
+      centered
       destroyOnClose
-      footer={taskId ? logRenderFooter() : importPreviewContext ? null : renderFooter()}
+      footer={taskId ? logRenderFooter() : showImportPreview ? null : renderFooter()}
       maskClosable={false}
       onCancel={() => {
         setImportExportDataBoundInfo(null);

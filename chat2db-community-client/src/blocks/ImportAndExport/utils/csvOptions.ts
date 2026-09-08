@@ -11,8 +11,6 @@ export const DEFAULT_CSV_OPTIONS: ICsvOptions = {
   emptyAsNull: true,
 };
 
-const SUPPORTED_ENCODINGS = ['AUTO', 'UTF-8', 'UTF-16LE', 'UTF-16BE', 'GB18030', 'ISO-8859-1', 'WINDOWS-1252', 'SHIFT_JIS', 'BIG5'];
-const SUPPORTED_DELIMITERS = [',', ';', '\t', '|'];
 const SUPPORTED_NEWLINES = ['LF', 'CRLF', 'CR'];
 
 export function validateCsvOptions(options: ICsvOptions): ICsvOptions {
@@ -26,8 +24,8 @@ export function validateCsvOptions(options: ICsvOptions): ICsvOptions {
     emptyAsNull: options.emptyAsNull ?? DEFAULT_CSV_OPTIONS.emptyAsNull,
   };
   if (
-    !SUPPORTED_ENCODINGS.includes(normalized.encoding) ||
-    !SUPPORTED_DELIMITERS.includes(normalized.delimiter) ||
+    !normalized.encoding ||
+    normalized.delimiter.length !== 1 ||
     !SUPPORTED_NEWLINES.includes(normalized.newline) ||
     normalized.quote.length !== 1 ||
     normalized.escape.length !== 1 ||

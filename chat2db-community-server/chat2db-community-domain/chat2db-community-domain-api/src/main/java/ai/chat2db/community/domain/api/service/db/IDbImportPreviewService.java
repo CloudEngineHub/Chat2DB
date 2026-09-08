@@ -1,49 +1,33 @@
 package ai.chat2db.community.domain.api.service.db;
 
-import ai.chat2db.community.domain.api.service.task.TaskExecutionContext;
+import ai.chat2db.community.domain.api.model.db.ImportPreview;
+import ai.chat2db.community.domain.api.model.task.CsvOptions;
 
 import java.io.File;
-import java.util.List;
-import java.util.Map;
 
 /**
- * Bounded import preview and mapped CSV execution for a server-staged file.
+ * Database-independent, bounded import preview with column mapping. The preview accepts
+ * only a server-staged file, never a client-supplied filesystem path.
  */
 public interface IDbImportPreviewService {
 
     /**
      * Parses a bounded number of rows from a CSV/XLS/XLSX file and returns source fields,
-     * sample values, target table columns (type, nullable, default), and a suggested
-     * mapping by exact name match. Never writes any data.
+     * target table columns, preview rows, and a suggested mapping by exact name match.
+     * Never writes any data.
      *
      * @param dataSourceId the datasource id.
      * @param databaseName the database name.
+     * @param schemaName   the schema name.
      * @param tableName    the target table name.
-     * @param file         a previously staged upload.
-     * @param csvOptions   CSV options: encoding, delimiter, quote, escape, hasHeader,
-     *                     emptyAsNull (ignored for XLS/XLSX).
+     * @param file         a previously staged upload (extension selects the parser).
      * @return preview model.
      */
-    Map<String, Object> preview(Long dataSourceId, String databaseName, String schemaName, String tableName,
-                                File file, Map<String, Object> csvOptions);
+    ImportPreview preview(Long dataSourceId, String databaseName, String schemaName,
+                          String tableName, File file);
 
-    /**
-     * Imports the whole file using the given column mapping. Rows are inserted one by one
-     * so a failing row is recorded (source row number + target column + message) and the
-     * import continues. Unmapped target columns use DEFAULT or explicit SQL NULL.
-     *
-     * @param dataSourceId    the datasource id.
-     * @param databaseName    the database name.
-     * @param tableName       the target table name.
-     * @param file            a previously staged upload.
-     * @param csvOptions      CSV options (ignored for XLS/XLSX).
-     * @param mappings        list of {sourceColumn, targetColumn}; sourceColumn null skips the source field.
-     * @param unmappedTarget  DEFAULT or NULL for unmapped target columns.
-     * @param context         task lifecycle and cancellation context.
-     * @return import result with totals and row-level errors.
-     */
-    Map<String, Object> execute(Long dataSourceId, String databaseName, String schemaName, String tableName,
-                                File file, Map<String, Object> csvOptions,
-                                List<Map<String, String>> mappings, String unmappedTarget,
-                                TaskExecutionContext context);
+    default ImportPreview preview(Long dataSourceId, String databaseName, String schemaName,
+                                  String tableName, File file, CsvOptions csvOptions) {
+        return preview(dataSourceId, databaseName, schemaName, tableName, file);
+    }
 }

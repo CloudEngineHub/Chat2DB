@@ -4,9 +4,6 @@ import ai.chat2db.community.web.api.model.request.data.source.DataSourceBaseRequ
 import ai.chat2db.community.domain.api.model.task.CsvOptions;
 import lombok.Data;
 
-import java.util.List;
-import java.util.Map;
-
 @Data
 public class TaskImportRequest extends DataSourceBaseRequest {
 
@@ -18,6 +15,8 @@ public class TaskImportRequest extends DataSourceBaseRequest {
 
     private String sourceFile;
 
+    private String fileId;
+
     private String displayFileName;
 
     private String format;
@@ -25,8 +24,4 @@ public class TaskImportRequest extends DataSourceBaseRequest {
     private String dataTimeFormat;
 
     private CsvOptions csvOptions;
-
-    private List<Map<String, String>> mappings;
-
-    private String unmappedTarget;
 }

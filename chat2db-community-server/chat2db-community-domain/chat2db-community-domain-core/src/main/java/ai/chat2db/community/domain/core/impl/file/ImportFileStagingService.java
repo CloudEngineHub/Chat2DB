@@ -1,6 +1,7 @@
 package ai.chat2db.community.domain.core.impl.file;
 
-import ai.chat2db.community.domain.api.service.file.IImportFileRegistry;
+import ai.chat2db.community.domain.api.model.task.TaskFileFormat;
+import ai.chat2db.community.domain.api.service.file.IImportFileStagingService;
 import ai.chat2db.community.tools.exception.BusinessException;
 import ai.chat2db.community.tools.util.ConfigUtils;
 import org.springframework.stereotype.Component;
@@ -18,10 +19,22 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
+/**
+ * Owns server-side import uploads between the HTTP request and asynchronous task execution.
+ */
 @Component
-public class ImportFileRegistry implements IImportFileRegistry {
-    private static final Set<String> ALLOWED_EXTENSIONS = Set.of("csv", "xls", "xlsx");
+public class ImportFileStagingService implements IImportFileStagingService {
+    private static final String STAGING_DIRECTORY_NAME = "import-preview";
+    private static final Pattern FILE_ID_PATTERN = Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
+            TaskFileFormat.CSV.name().toLowerCase(Locale.ROOT),
+            TaskFileFormat.XLS.name().toLowerCase(Locale.ROOT),
+            TaskFileFormat.XLSX.name().toLowerCase(Locale.ROOT),
+            TaskFileFormat.JSON.name().toLowerCase(Locale.ROOT),
+            TaskFileFormat.SQL.name().toLowerCase(Locale.ROOT));
     private static final Duration MAX_AGE = Duration.ofHours(24);
     private static final Duration CLAIMED_MAX_AGE = Duration.ofDays(7);
     private static final long MAX_SIZE_BYTES = 50L * 1024 * 1024;
@@ -29,7 +42,7 @@ public class ImportFileRegistry implements IImportFileRegistry {
     private final Map<String, Instant> claimedFiles = new ConcurrentHashMap<>();
 
     @Override
-    public String register(File file, String originalFileName) {
+    public String stage(File file, String originalFileName) {
         validateSource(file, originalFileName);
         cleanupExpiredFiles();
         String id = UUID.randomUUID().toString();
@@ -70,7 +83,7 @@ public class ImportFileRegistry implements IImportFileRegistry {
     }
 
     @Override
-    public void claim(String fileId) {
+    public void claimForTask(String fileId) {
         resolve(fileId);
         claimedFiles.put(fileId, Instant.now());
     }
@@ -106,7 +119,7 @@ public class ImportFileRegistry implements IImportFileRegistry {
     }
 
     private static Path stagingDirectory() {
-        return Path.of(ConfigUtils.getBasePath(), "import-preview").normalize().toAbsolutePath();
+        return Path.of(ConfigUtils.getBasePath(), STAGING_DIRECTORY_NAME).normalize().toAbsolutePath();
     }
 
     private static Path stagingFile(String id, String extension) {
@@ -138,9 +151,9 @@ public class ImportFileRegistry implements IImportFileRegistry {
             }
             Instant deadline = Instant.now().minus(MAX_AGE);
             try (var files = Files.list(stagingDirectory())) {
-                files.filter(ImportFileRegistry::isStagedImportFile)
+                files.filter(ImportFileStagingService::isStagedImportFile)
                         .filter(path -> isExpired(path, deadline)).filter(this::canDelete)
-                        .forEach(ImportFileRegistry::deleteQuietly);
+                        .forEach(ImportFileStagingService::deleteQuietly);
             }
         } catch (IOException ignored) {
             // Stale staging files are best-effort cleanup; a valid current file must remain usable.
@@ -154,7 +167,7 @@ public class ImportFileRegistry implements IImportFileRegistry {
     }
 
     private static boolean isFileId(String fileId) {
-        return fileId != null && fileId.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+        return fileId != null && FILE_ID_PATTERN.matcher(fileId).matches();
     }
 
     private static boolean isExpired(Path path, Instant deadline) {

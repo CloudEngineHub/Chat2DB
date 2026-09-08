@@ -6,7 +6,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
-import java.util.Map;
 
 @Data
 @Builder
@@ -33,7 +32,8 @@ public class ImportTaskSpec implements TaskSpec {
 
     private CsvOptions csvOptions;
 
-    private List<Map<String, String>> mappings;
+    /** Optional mapping supplied by the import-preview workflow. */
+    private List<ImportColumnMapping> columnMappings;
 
-    private String unmappedTarget;
+    private UnmappedTargetStrategy unmappedTarget;
 }

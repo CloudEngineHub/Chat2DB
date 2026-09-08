@@ -29,6 +29,8 @@ assert.equal(supportsCsvMappingPreview(ImportExportFileType.XLSX), false);
 assert.equal(supportsCsvMappingPreview(ImportExportFileType.XLS), false);
 assert.equal(supportsCsvMappingPreview(ImportExportFileType.JSON), false);
 assert.equal(supportsCsvMappingPreview(ImportExportFileType.SQL), false);
+assert.equal(validateCsvOptions({ ...options, encoding: 'koi8-r' }).encoding, 'KOI8-R');
+assert.equal(validateCsvOptions({ ...options, delimiter: '^' }).delimiter, '^');
 
 assert.throws(
   () => validateCsvOptions({ ...options, delimiter: '"' }),

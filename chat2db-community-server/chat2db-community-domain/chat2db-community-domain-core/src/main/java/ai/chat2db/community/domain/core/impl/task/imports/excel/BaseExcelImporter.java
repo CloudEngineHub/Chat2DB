@@ -5,10 +5,10 @@ import ai.chat2db.community.domain.core.impl.task.imports.ImportSqlExecutor;
 import ai.chat2db.community.domain.api.model.task.TaskConstants;
 import ai.chat2db.community.domain.api.model.task.TaskCancelledException;
 import ai.chat2db.community.domain.api.model.task.ImportTaskSpec;
-import ai.chat2db.community.domain.api.model.task.TaskErrorCode;
+import ai.chat2db.community.domain.api.model.task.ImportColumnMapping;
 import ai.chat2db.community.domain.api.model.task.TaskEventCode;
-import ai.chat2db.community.domain.api.model.task.TaskExecutionException;
 import ai.chat2db.community.domain.api.model.task.TaskStage;
+import ai.chat2db.community.domain.api.model.task.UnmappedTargetStrategy;
 import ai.chat2db.community.domain.api.service.task.TaskExecutionContext;
 import ai.chat2db.spi.ISqlBuilder;
 import ai.chat2db.spi.IValueProcessor;
@@ -26,9 +26,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.File;
-import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Savepoint;
 import java.util.*;
 
 
@@ -39,91 +36,15 @@ public abstract class BaseExcelImporter extends BaseImporter {
         context.checkCancelled();
         ExcelTypeEnum excelType = getExcelType();
         NoModelDataListener noModelDataListener = new NoModelDataListener(spec, context, columns);
-        runInTransaction(() -> {
-            EasyExcel.read(new File(spec.getSourceFile()), noModelDataListener)
-                    .excelType(excelType)
-                    .sheet()
-                    .headRowNumber(1)
-                    .doRead();
-            context.checkCancelled();
-        });
-
+        EasyExcel.read(new File(spec.getSourceFile()), noModelDataListener)
+                .excelType(excelType)
+                .sheet()
+                .headRowNumber(1)
+                .doRead();
+        context.checkCancelled();
     }
 
     protected abstract ExcelTypeEnum getExcelType();
-
-    private void runInTransaction(Runnable importAction) {
-        Connection connection = Chat2DBContext.getConnection();
-        boolean autoCommit;
-        Savepoint savepoint = null;
-        try {
-            autoCommit = connection.getAutoCommit();
-            if (autoCommit) {
-                connection.setAutoCommit(false);
-            } else {
-                savepoint = connection.setSavepoint();
-            }
-        } catch (SQLException e) {
-            throw new TaskExecutionException(TaskErrorCode.IMPORT_FAILED.name(),
-                    "Could not start import transaction", e);
-        }
-
-        RuntimeException failure = null;
-        boolean committed = false;
-        try {
-            importAction.run();
-            if (savepoint != null) {
-                connection.releaseSavepoint(savepoint);
-            } else {
-                connection.commit();
-            }
-            committed = true;
-        } catch (RuntimeException e) {
-            failure = e;
-            throw e;
-        } catch (Exception e) {
-            failure = new TaskExecutionException(TaskErrorCode.IMPORT_FAILED.name(),
-                    "Could not import data file", e);
-            throw failure;
-        } finally {
-            if (!committed) {
-                rollbackImport(connection, savepoint, failure);
-            }
-            if (savepoint == null) {
-                restoreAutoCommit(connection, failure);
-            }
-        }
-    }
-
-    private void rollbackImport(Connection connection, Savepoint savepoint, RuntimeException failure) {
-        try {
-            if (savepoint != null) {
-                connection.rollback(savepoint);
-            } else {
-                connection.rollback();
-            }
-        } catch (Exception rollbackFailure) {
-            if (failure != null) {
-                failure.addSuppressed(rollbackFailure);
-                return;
-            }
-            throw new TaskExecutionException(TaskErrorCode.IMPORT_FAILED.name(),
-                    "Could not roll back failed import", rollbackFailure);
-        }
-    }
-
-    private void restoreAutoCommit(Connection connection, RuntimeException failure) {
-        try {
-            connection.setAutoCommit(true);
-        } catch (SQLException restoreFailure) {
-            if (failure != null) {
-                failure.addSuppressed(restoreFailure);
-                return;
-            }
-            throw new TaskExecutionException(TaskErrorCode.IMPORT_FAILED.name(),
-                    "Could not restore import connection", restoreFailure);
-        }
-    }
 
 
     public class NoModelDataListener extends AnalysisEventListener<Map<Integer, String>> {
@@ -149,8 +70,6 @@ public abstract class BaseExcelImporter extends BaseImporter {
 
         private long skippedCount;
 
-        private long totalRows;
-
         private static final int BATCH_SIZE = 1000;
 
         private final IValueProcessor valueProcessor;
@@ -175,8 +94,11 @@ public abstract class BaseExcelImporter extends BaseImporter {
 
         @Override
         public void invokeHead(Map<Integer, ReadCellData<?>> headMap, AnalysisContext context) {
+            acceptHead(ConverterUtils.convertToStringMap(headMap, context));
+        }
+
+        void acceptHead(Map<Integer, String> map) {
             this.taskContext.checkCancelled();
-            Map<Integer, String> map = ConverterUtils.convertToStringMap(headMap, context);
             this.headMap = invertMap(map);
             this.mappedHeadMap = mappedHeadMap();
             this.tableColumns = getTableColumns(columns, this.headMap);
@@ -209,10 +131,13 @@ public abstract class BaseExcelImporter extends BaseImporter {
 
         @Override
         public void invoke(Map<Integer, String> data, AnalysisContext context) {
+            acceptRow(data);
+        }
+
+        void acceptRow(Map<Integer, String> data) {
             this.taskContext.checkCancelled();
             if (data == null || data.isEmpty()) {
                 skippedCount++;
-                totalRows++;
                 return;
             }
             List<String> values = getValueList(data);
@@ -221,14 +146,12 @@ public abstract class BaseExcelImporter extends BaseImporter {
 
             if (StringUtils.isBlank(sql)) {
                 skippedCount++;
-                totalRows++;
                 return;
             }
             if (sqlList == null) {
                 sqlList = new ArrayList<>();
             }
             sqlList.add(sql);
-            totalRows++;
             if (sqlList.size() >= BATCH_SIZE) {
                 executeBatchInsert();
             } else {
@@ -257,12 +180,12 @@ public abstract class BaseExcelImporter extends BaseImporter {
 
         private Map<String, Integer> mappedHeadMap() {
             Map<String, Integer> mapped = new HashMap<>();
-            if (spec.getMappings() == null) {
+            if (spec.getColumnMappings() == null) {
                 return mapped;
             }
-            for (Map<String, String> mapping : spec.getMappings()) {
-                String source = mapping.get("sourceColumn");
-                String target = mapping.get("targetColumn");
+            for (ImportColumnMapping mapping : spec.getColumnMappings()) {
+                String source = mapping.getSourceColumn();
+                String target = mapping.getTargetColumn();
                 Integer sourceIndex = headMap.get(source == null ? null : source.toUpperCase(Locale.ROOT));
                 if (sourceIndex != null && StringUtils.isNotBlank(target)) {
                     mapped.put(target.toUpperCase(Locale.ROOT), sourceIndex);
@@ -273,20 +196,20 @@ public abstract class BaseExcelImporter extends BaseImporter {
 
         private Integer sourceIndex(String targetColumn) {
             String target = targetColumn.toUpperCase(Locale.ROOT);
-            if (spec.getMappings() != null) {
+            if (spec.getColumnMappings() != null) {
                 return mappedHeadMap.get(target);
             }
             return headMap.get(target);
         }
 
         private boolean shouldInclude(TableColumn column) {
-            if (spec.getMappings() == null) {
+            if (spec.getColumnMappings() == null) {
                 return sourceIndex(column.getName()) != null;
             }
             if (sourceIndex(column.getName()) != null) {
                 return true;
             }
-            return "NULL".equalsIgnoreCase(spec.getUnmappedTarget())
+            return spec.getUnmappedTarget() == UnmappedTargetStrategy.NULL
                     && !Boolean.TRUE.equals(column.getAutoIncrement());
         }
 
@@ -302,13 +225,12 @@ public abstract class BaseExcelImporter extends BaseImporter {
 
         @Override
         public void doAfterAllAnalysed(AnalysisContext context) {
+            finish();
+        }
+
+        void finish() {
             this.taskContext.checkCancelled();
             executeBatchInsert();
-            taskContext.logInfo("IMPORT_SUMMARY", "Data import completed", Map.of(
-                    "totalRows", totalRows,
-                    "successCount", successCount,
-                    "failedCount", 0L,
-                    "skippedCount", skippedCount));
         }
 
         private void executeBatchInsert() {
@@ -324,7 +246,7 @@ public abstract class BaseExcelImporter extends BaseImporter {
                 } catch (TaskCancelledException e) {
                     throw e;
                 } catch (Exception e) {
-                    taskContext.logError("IMPORT_BATCH_FAILED", "Could not import batch", Map.of(
+                    taskContext.logError(TaskEventCode.IMPORT_BATCH_FAILED.name(), "Could not import batch", Map.of(
                             "statementCount", statementCount,
                             "message", StringUtils.defaultString(e.getMessage())));
                     throw e;

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { ACTIVE_TASK_STATUSES, ImportExportTaskStatus, ImportExportTaskType } from '@/constants/importExport';
+import { ImportExportTaskStatus, ImportExportTaskType } from '@/constants/importExport';
 import { ImportExportTaskDetails, ImportExportTaskEvent } from '@/typings/importExport';
 import {
   FAILED_TASK_POLL_INTERVAL,
@@ -111,7 +111,6 @@ function testEventMerge() {
 }
 
 function testPollingDelay() {
-  assert.ok(ACTIVE_TASK_STATUSES.includes(ImportExportTaskStatus.CANCELLING));
   assert.equal(getTaskPollingDelay(1), 1000);
   assert.equal(getTaskPollingDelay(0), null);
   assert.equal(getTaskPollingDelay(0, true), FAILED_TASK_POLL_INTERVAL);

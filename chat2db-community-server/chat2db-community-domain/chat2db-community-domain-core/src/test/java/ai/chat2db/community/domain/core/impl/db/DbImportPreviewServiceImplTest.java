@@ -1,311 +1,204 @@
 package ai.chat2db.community.domain.core.impl.db;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import java.io.File;
+import java.lang.reflect.Proxy;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.Types;
+import java.util.ArrayList;
+import java.util.List;
+
 import ai.chat2db.community.domain.api.config.DBConfig;
 import ai.chat2db.community.domain.api.config.DriverConfig;
+import ai.chat2db.community.domain.api.model.db.ImportPreview;
+import ai.chat2db.community.domain.api.model.metadata.TableColumn;
+import ai.chat2db.community.domain.api.model.metadata.Table;
+import ai.chat2db.community.domain.api.model.task.CsvOptions;
 import ai.chat2db.community.tools.exception.BusinessException;
 import ai.chat2db.spi.DefaultMetaService;
+import ai.chat2db.spi.DefaultSQLIdentifierProcessor;
 import ai.chat2db.spi.IDbMetaData;
 import ai.chat2db.spi.IPlugin;
+import ai.chat2db.spi.ISQLIdentifierProcessor;
 import ai.chat2db.spi.model.datasource.ConnectInfo;
+import ai.chat2db.spi.model.request.TableMetadataRequest;
+import ai.chat2db.spi.model.request.TablesRequest;
 import ai.chat2db.spi.sql.Chat2DBContext;
-
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.math.BigDecimal;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.sql.PreparedStatement;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 class DbImportPreviewServiceImplTest {
 
-    private static final String DB_TYPE = "MAPPED_IMPORT_TEST";
+    private static final String DB_TYPE = "IMPORT_PREVIEW_METADATA_TEST";
+    private static final long DATA_SOURCE_ID = 930_101L;
+    private static final String DATABASE = "app";
 
-    @TempDir
-    Path tempDir;
+    private final RecordingMetaData metaData = new RecordingMetaData();
 
     private IPlugin previousPlugin;
 
+    @BeforeEach
+    void setUp() {
+        DBConfig config = new DBConfig();
+        config.setDbType(DB_TYPE);
+        config.setDefaultDriverConfig(new DriverConfig());
+        config.setSupportDatabase(true);
+        config.setSupportSchema(false);
+        previousPlugin = Chat2DBContext.PLUGIN_MAP.put(DB_TYPE, plugin(config));
+        Chat2DBContext.putContext(connectInfo());
+    }
+
     @AfterEach
-    void clearContext() {
+    void tearDown() {
         Chat2DBContext.removeContext();
         if (previousPlugin == null) {
             Chat2DBContext.PLUGIN_MAP.remove(DB_TYPE);
         } else {
             Chat2DBContext.PLUGIN_MAP.put(DB_TYPE, previousPlugin);
-            previousPlugin = null;
         }
     }
 
     @Test
-    void previewParserStopsAtTheBoundWithoutDecodingLaterRows() throws Exception {
-        Path file = importFile("bounded.csv");
-        byte[] bytes = "name\nAda\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        byte[] invalidLaterRow = java.util.Arrays.copyOf(bytes, bytes.length + 2);
-        invalidLaterRow[invalidLaterRow.length - 2] = (byte) 0xC3;
-        invalidLaterRow[invalidLaterRow.length - 1] = (byte) 0x28;
-        Files.write(file, invalidLaterRow);
-
-        Object outcome = parseRows(file, 2, Map.of("encoding", "UTF-8"));
-
-        assertEquals(2, rows(outcome).size());
-    }
-
-    @Test
-    void defaultStrategyBindsOnlyColumnsIncludedInTheInsertStatement() throws Exception {
-        List<Map<String, Object>> targetColumns = List.of(
-                target("id", "BIGINT", false, true, null),
-                target("name", "VARCHAR", false, false, null),
-                target("created_at", "TIMESTAMP", false, false, "CURRENT_TIMESTAMP"));
-        Map<Integer, String> sourceToTarget = Map.of(0, "name");
-        Map<Integer, ExcelParser.CellValue> row = Map.of(0, new ExcelParser.CellValue("Ada", "string"));
-        List<String> calls = new ArrayList<>();
-        PreparedStatement statement = recordingStatement(calls);
-
-        bindRow(statement, row, targetColumns, sourceToTarget, "DEFAULT");
-
-        assertEquals(List.of("setString:1:Ada"), calls);
-    }
-
-    @Test
-    void nullStrategyExcludesUnmappedAutoIncrementColumns() throws Exception {
-        List<Map<String, Object>> targetColumns = List.of(
-                target("id", "BIGINT", false, true, null),
-                target("name", "VARCHAR", true, false, null),
-                target("created_by", "VARCHAR", true, false, null));
-        Map<Integer, String> sourceToTarget = Map.of(0, "name");
-        Map<Integer, ExcelParser.CellValue> row = Map.of(0, new ExcelParser.CellValue("Ada", "string"));
-        List<String> calls = new ArrayList<>();
-        PreparedStatement statement = recordingStatement(calls);
-
-        bindRow(statement, row, targetColumns, sourceToTarget, "NULL");
-
-        assertEquals(List.of("setString:1:Ada", "setNull:2"), calls);
-    }
-
-    @Test
-    void mappedInsertUsesTrustedQualifiedDialectTableName() throws Exception {
-        previousPlugin = Chat2DBContext.PLUGIN_MAP.put(DB_TYPE, plugin());
-        ConnectInfo connectInfo = connectInfo(7L, "trusted_db", "trusted_schema");
-        connectInfo.setDbType(DB_TYPE);
-        Chat2DBContext.putContext(connectInfo);
-        List<Map<String, Object>> targetColumns = List.of(target("amount", "DOUBLE", true, false, null));
-
-        String sql = buildInsertSql("trusted_db", "trusted_schema", "orders", targetColumns,
-                Map.of(0, "amount"), "DEFAULT");
-
-        assertEquals("INSERT INTO [trusted_db].[trusted_schema].[orders] ([amount]) VALUES (?)", sql);
-    }
-
-    @Test
-    void valueBindingSanitizesFormulaTextAndParsesFloatingPointDecimals() throws Exception {
-        List<Map<String, Object>> targetColumns = List.of(
-                target("rate", "DOUBLE", true, false, null),
-                target("ratio", "FLOAT", true, false, null),
-                target("formula", "VARCHAR", true, false, null));
-        Map<Integer, String> sourceToTarget = Map.of(0, "rate", 1, "ratio", 2, "formula");
-        Map<Integer, ExcelParser.CellValue> row = Map.of(
-                0, new ExcelParser.CellValue("1.25", "string"),
-                1, new ExcelParser.CellValue("2.5", "string"),
-                2, new ExcelParser.CellValue("=1+1", "string"));
-        List<String> calls = new ArrayList<>();
-        PreparedStatement statement = recordingStatement(calls);
-
-        bindRow(statement, row, targetColumns, sourceToTarget, "DEFAULT");
-
-        assertEquals(List.of("setDouble:1:1.25", "setDouble:2:2.5", "setString:3:'=1+1"), calls);
-    }
-
-    @Test
-    void emptyRowsAreSkippedButRowsWithDataAreNot() throws Exception {
-        assertTrue(isEmptyRow(Map.of()));
-        assertTrue(isEmptyRow(Map.of(0, new ExcelParser.CellValue("", "empty"))));
-        assertFalse(isEmptyRow(Map.of(0, new ExcelParser.CellValue("Ada", "string"))));
-    }
-
-    @Test
-    void importTargetUsesTrustedContextMetadata() {
-        Chat2DBContext.putContext(connectInfo(7L, "trusted_db", "trusted_schema"));
-
-        DbImportPreviewServiceImpl.ImportTarget target = DbImportPreviewServiceImpl
-                .resolveImportTarget(7L, " trusted_db ", " trusted_schema ", "orders");
-
-        assertEquals("trusted_db", target.databaseName());
-        assertEquals("trusted_schema", target.schemaName());
-        assertEquals("orders", target.tableName());
-    }
-
-    @Test
-    void importTargetRejectsRequestDatabaseMismatch() {
-        Chat2DBContext.putContext(connectInfo(7L, "trusted_db", "trusted_schema"));
-
-        assertThrows(BusinessException.class,
-                () -> DbImportPreviewServiceImpl.resolveImportTarget(7L, "other_db", "trusted_schema", "orders"));
-    }
-
-    @Test
-    void importTargetRejectsRequestSchemaMismatch() {
-        Chat2DBContext.putContext(connectInfo(7L, "trusted_db", "trusted_schema"));
-
-        assertThrows(BusinessException.class,
-                () -> DbImportPreviewServiceImpl.resolveImportTarget(7L, "trusted_db", "other_schema", "orders"));
-    }
-
-    @Test
-    void importTargetRejectsDataSourceMismatch() {
-        Chat2DBContext.putContext(connectInfo(7L, "trusted_db", "trusted_schema"));
-
-        assertThrows(BusinessException.class,
-                () -> DbImportPreviewServiceImpl.resolveImportTarget(8L, "trusted_db", "trusted_schema", "orders"));
-    }
-
-    @Test
-    void importTargetRejectsMetadataWildcards() {
-        Chat2DBContext.putContext(connectInfo(7L, "trusted_db", "trusted_schema"));
-
-        assertThrows(BusinessException.class,
-                () -> DbImportPreviewServiceImpl.resolveImportTarget(7L, "trusted%", "trusted_schema", "orders"));
-        assertThrows(BusinessException.class,
-                () -> DbImportPreviewServiceImpl.resolveImportTarget(7L, "trusted_db", "trusted_schema", "orders*"));
-    }
-
-    @Test
-    void importTargetRejectsWildcardFromTrustedContext() {
-        Chat2DBContext.putContext(connectInfo(7L, "trusted%", "trusted_schema"));
-
-        assertThrows(BusinessException.class,
-                () -> DbImportPreviewServiceImpl.resolveImportTarget(7L, "trusted%", "trusted_schema", "orders"));
-    }
-
-    private Path importFile(String name) throws Exception {
-        return tempDir.resolve(name);
-    }
-
-    private static Object parseRows(Path file, int limit, Map<String, Object> csvOptions) throws Exception {
-        Method method = DbImportPreviewServiceImpl.class
-                .getDeclaredMethod("parseRows", java.io.File.class, int.class, Map.class);
-        method.setAccessible(true);
-        return invoke(method, null, file.toFile(), limit, csvOptions);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<Map<Integer, ExcelParser.CellValue>> rows(Object outcome) throws Exception {
-        Method method = outcome.getClass().getDeclaredMethod("rows");
-        method.setAccessible(true);
-        return (List<Map<Integer, ExcelParser.CellValue>>) method.invoke(outcome);
-    }
-
-    private static void bindRow(PreparedStatement statement, Map<Integer, ExcelParser.CellValue> row,
-            List<Map<String, Object>> targetColumns, Map<Integer, String> sourceToTarget, String strategy)
+    void previewCanonicalizesTableCaseWithoutLosingTargetColumns(@TempDir Path directory)
             throws Exception {
-        Method method = DbImportPreviewServiceImpl.class.getDeclaredMethod("bindRow", PreparedStatement.class,
-                Map.class, List.class, Map.class, String.class);
-        method.setAccessible(true);
-        invoke(method, null, statement, row, targetColumns, sourceToTarget, strategy);
+        ImportPreview preview = new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, DATABASE, null, "ORDERS", csv(directory));
+
+        assertEquals(1, metaData.requests.size());
+        TableMetadataRequest request = metaData.requests.get(0);
+        assertEquals(DATABASE, request.getDatabaseName());
+        assertEquals(null, request.getSchemaName());
+        assertEquals("orders", request.getTableName());
+        assertEquals("orders", preview.getTargetTableName());
+        assertEquals(1, preview.getTargetColumns().size());
+        assertEquals("Contact name", preview.getTargetColumns().get(0).getComment());
     }
 
-    private static boolean isEmptyRow(Map<Integer, ExcelParser.CellValue> row) throws Exception {
-        Method method = DbImportPreviewServiceImpl.class.getDeclaredMethod("isEmptyRow", Map.class);
-        method.setAccessible(true);
-        return invoke(method, null, row);
+    @Test
+    void previewAcceptsPunctuationInARealTableName(@TempDir Path directory) throws Exception {
+        metaData.tableName = "order.items";
+
+        ImportPreview preview = new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, DATABASE, null, "order.items", csv(directory));
+
+        assertEquals("order.items", preview.getTargetTableName());
+        assertEquals("order.items", metaData.requests.get(0).getTableName());
     }
 
-    private static String buildInsertSql(String databaseName, String schemaName, String tableName,
-            List<Map<String, Object>> targetColumns, Map<Integer, String> sourceToTarget, String strategy)
-            throws Exception {
-        Class<?> targetMetadataClass = Class.forName(
-                "ai.chat2db.community.domain.core.impl.db.DbImportPreviewServiceImpl$TargetMetadata");
-        Constructor<?> constructor = targetMetadataClass
-                .getDeclaredConstructor(String.class, String.class, String.class, List.class);
-        constructor.setAccessible(true);
-        Object targetMetadata = constructor.newInstance(databaseName, schemaName, tableName, targetColumns);
-        Method method = DbImportPreviewServiceImpl.class.getDeclaredMethod("buildInsertSql", targetMetadataClass,
-                List.class, Map.class, String.class);
-        method.setAccessible(true);
-        return invoke(method, null, targetMetadata, targetColumns, sourceToTarget, strategy);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <T> T invoke(Method method, Object target, Object... args) throws Exception {
-        try {
-            return (T) method.invoke(target, args);
-        } catch (InvocationTargetException e) {
-            if (e.getCause() instanceof Exception exception) {
-                throw exception;
-            }
-            throw e;
-        }
-    }
-
-    private static Map<String, Object> target(String name, String dataType, boolean nullable,
-            boolean autoIncrement, String defaultValue) {
-        Map<String, Object> column = new LinkedHashMap<>();
-        column.put("name", name);
-        column.put("dataType", dataType);
-        column.put("nullable", nullable);
-        column.put("autoIncrement", autoIncrement);
-        column.put("defaultValue", defaultValue);
-        return column;
-    }
-
-    private static ConnectInfo connectInfo(Long dataSourceId, String databaseName, String schemaName) {
-        ConnectInfo connectInfo = new ConnectInfo();
-        connectInfo.setDataSourceId(dataSourceId);
-        connectInfo.setDatabaseName(databaseName);
-        connectInfo.setSchemaName(schemaName);
-        connectInfo.setDriverConfig(new DriverConfig());
-        return connectInfo;
-    }
-
-    private static PreparedStatement recordingStatement(List<String> calls) {
-        return (PreparedStatement) Proxy.newProxyInstance(PreparedStatement.class.getClassLoader(),
-                new Class<?>[]{PreparedStatement.class}, (proxy, method, args) -> {
-                    switch (method.getName()) {
-                        case "setString" -> calls.add("setString:" + args[0] + ":" + args[1]);
-                        case "setNull" -> calls.add("setNull:" + args[0]);
-                        case "setObject" -> calls.add("setObject:" + args[0] + ":" + args[1]);
-                        case "setDouble" -> calls.add("setDouble:" + args[0] + ":" + args[1]);
-                        case "setBigDecimal" -> calls.add("setBigDecimal:" + args[0] + ":"
-                                + ((BigDecimal) args[1]).toPlainString());
-                        default -> {
-                        }
-                    }
-                    return null;
-                });
-    }
-
-    private static IPlugin plugin() {
-        DBConfig config = new DBConfig();
-        config.setDbType(DB_TYPE);
-        config.setDefaultDriverConfig(new DriverConfig());
-        IDbMetaData metaData = new DefaultMetaService() {
+    @Test
+    void previewUsesDialectIdentifierProcessor(@TempDir Path directory) throws Exception {
+        metaData.identifierProcessor = new DefaultSQLIdentifierProcessor() {
             @Override
-            public String getMetaDataName(String... names) {
-                return java.util.Arrays.stream(names)
-                        .filter(org.apache.commons.lang3.StringUtils::isNotBlank)
-                        .map(name -> "[" + name.replace("]", "]]") + "]")
-                        .collect(java.util.stream.Collectors.joining("."));
-            }
-
-            @Override
-            public String getQualifiedTableName(String databaseName, String schemaName, String tableName) {
-                return getMetaDataName(databaseName, schemaName, tableName);
+            public String removeIdentifierQuote(String identifier) {
+                return identifier != null && identifier.startsWith("<") && identifier.endsWith(">")
+                        ? identifier.substring(1, identifier.length() - 1) : identifier;
             }
         };
+
+        ImportPreview preview = new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, "<app>", null, "<orders>", csv(directory));
+
+        assertEquals("orders", preview.getTargetTableName());
+        assertEquals("orders", metaData.requests.get(0).getTableName());
+    }
+
+    @Test
+    void previewUsesSchemaForDatabasesThatSupportSchemas(@TempDir Path directory) throws Exception {
+        Chat2DBContext.getDBConfig().setSupportSchema(true);
+        Chat2DBContext.getConnectInfo().setSchemaName("public");
+
+        new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, DATABASE, "public", "orders", csv(directory));
+
+        TableMetadataRequest request = metaData.requests.get(0);
+        assertEquals(DATABASE, request.getDatabaseName());
+        assertEquals("public", request.getSchemaName());
+        assertEquals("orders", request.getTableName());
+    }
+
+    @Test
+    void previewRejectsDatabaseMismatchBeforeMetadataLookup(@TempDir Path directory) throws Exception {
+        assertThrows(BusinessException.class, () -> new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, "other", null, "orders", csv(directory)));
+
+        assertEquals(0, metaData.tablesRequests);
+        assertEquals(0, metaData.requests.size());
+    }
+
+    @Test
+    void previewRejectsTableNameThatDoesNotExist(@TempDir Path directory) throws Exception {
+        assertThrows(BusinessException.class, () -> new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, DATABASE, null, "orders%", csv(directory)));
+
+        assertEquals(1, metaData.tablesRequests);
+        assertEquals(0, metaData.requests.size());
+    }
+
+    @Test
+    void previewKeepsOnlyTheConfiguredNumberOfDataRows(@TempDir Path directory) throws Exception {
+        StringBuilder content = new StringBuilder("Name\n");
+        for (int row = 1; row <= 100; row++) {
+            content.append("row-").append(row).append('\n');
+        }
+        Path path = directory.resolve("large-orders.csv");
+        Files.writeString(path, content, StandardCharsets.UTF_8);
+
+        ImportPreview preview = new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, DATABASE, null, "orders", path.toFile());
+
+        assertEquals(10, preview.getPreviewLimit());
+        assertEquals(List.of("Name"), preview.getSourceColumns());
+        assertEquals(10, preview.getPreviewData().size());
+        assertEquals(List.of("row-1"), preview.getPreviewData().get(0));
+        assertEquals(List.of("row-10"), preview.getPreviewData().get(9));
+    }
+
+    @Test
+    void previewRejectsDuplicateSourceColumnsIgnoringCase(@TempDir Path directory) throws Exception {
+        Path path = directory.resolve("duplicate-columns.csv");
+        Files.writeString(path, "Name,name\nAlice,Bob\n", StandardCharsets.UTF_8);
+
+        assertThrows(BusinessException.class, () -> new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, DATABASE, null, "orders", path.toFile()));
+
+        assertEquals(0, metaData.tablesRequests);
+        assertEquals(0, metaData.requests.size());
+    }
+
+    @Test
+    void previewUsesCsvDelimiterEncodingAndHeaderOptions(@TempDir Path directory) throws Exception {
+        Path path = directory.resolve("custom.csv");
+        Files.write(path, "Alice;olá\n".getBytes(java.nio.charset.Charset.forName("ISO-8859-1")));
+        CsvOptions options = CsvOptions.builder()
+                .encoding("ISO-8859-1")
+                .delimiter(";")
+                .quote("\"")
+                .escape("\"")
+                .hasHeader(false)
+                .emptyAsNull(false)
+                .build();
+
+        ImportPreview preview = new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, DATABASE, null, "orders", path.toFile(), options);
+
+        assertEquals(List.of("column_1", "column_2"), preview.getSourceColumns());
+        assertEquals(List.of("Alice", "olá"), preview.getPreviewData().get(0));
+    }
+
+    private File csv(Path directory) throws Exception {
+        Path path = directory.resolve("orders.csv");
+        Files.writeString(path, "Name\nAlice\n", StandardCharsets.UTF_8);
+        return path.toFile();
+    }
+
+    private IPlugin plugin(DBConfig config) {
         return new IPlugin() {
             @Override
             public DBConfig getDBConfig() {
@@ -317,5 +210,55 @@ class DbImportPreviewServiceImplTest {
                 return metaData;
             }
         };
+    }
+
+    private ConnectInfo connectInfo() {
+        ConnectInfo connectInfo = new ConnectInfo();
+        connectInfo.setDataSourceId(DATA_SOURCE_ID);
+        connectInfo.setDbType(DB_TYPE);
+        connectInfo.setDatabaseName(DATABASE);
+        connectInfo.setConnection(connection());
+        connectInfo.setDriverConfig(new DriverConfig());
+        return connectInfo;
+    }
+
+    private Connection connection() {
+        return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(),
+                new Class<?>[]{Connection.class}, (proxy, method, arguments) -> switch (method.getName()) {
+                    case "isClosed" -> false;
+                    case "isValid" -> true;
+                    case "close" -> null;
+                    case "toString" -> "ImportPreviewMetadataTestConnection";
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "equals" -> proxy == arguments[0];
+                    default -> null;
+                });
+    }
+
+    private static final class RecordingMetaData extends DefaultMetaService {
+
+        private final List<TableMetadataRequest> requests = new ArrayList<>();
+        private int tablesRequests;
+        private String tableName = "orders";
+        private ISQLIdentifierProcessor identifierProcessor = new DefaultSQLIdentifierProcessor();
+
+        @Override
+        public ISQLIdentifierProcessor getSQLIdentifierProcessor() {
+            return identifierProcessor;
+        }
+
+        @Override
+        public List<Table> tables(Connection connection, TablesRequest request) {
+            tablesRequests++;
+            return List.of(Table.builder().databaseName(request.getDatabaseName())
+                    .schemaName(request.getSchemaName()).name(tableName).build());
+        }
+
+        @Override
+        public List<TableColumn> columns(Connection connection, TableMetadataRequest request) {
+            requests.add(request);
+            return List.of(TableColumn.builder().name("name").columnType("VARCHAR")
+                    .dataType(Types.VARCHAR).comment("Contact name").build());
+        }
     }
 }

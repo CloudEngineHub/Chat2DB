@@ -61,13 +61,12 @@ export interface ImportTaskParams extends IDatabaseBaseInfo {
   taskType: ImportTaskType;
   taskName?: string;
   tableName?: string;
-  sourceFile: string;
+  sourceFile?: string;
+  fileId?: string;
   displayFileName?: string;
   format: ImportExportFileType;
   dataTimeFormat?: string;
   csvOptions?: ICsvOptions;
-  mappings?: { sourceColumn: string | null; targetColumn: string }[];
-  unmappedTarget?: 'DEFAULT' | 'NULL';
 }
 
 const submitExport = createRequest<ExportTaskParams, TaskSubmissionResponse>('/api/tasks/export', { method: 'post' });
@@ -87,7 +86,6 @@ const getTaskEvents = createRequest<TaskEventListParams, ImportExportTaskEvent[]
 });
 
 const deleteTask = createRequest<TaskIdParams, void>('/api/tasks/delete', { method: 'delete' });
-const cancelTask = createRequest<TaskIdParams, void>('/api/tasks/cancel', { method: 'post' });
 const getActiveTaskCount = createRequest<void, number>('/api/tasks/active-count', { method: 'get', errorLevel: false });
 const prepareUserExit = createRequest<void, void>('/api/tasks/prepare-user-exit', {
   method: 'post',
@@ -110,7 +108,6 @@ export default {
   getTaskDetails,
   getTaskEvents,
   deleteTask,
-  cancelTask,
   getActiveTaskCount,
   prepareUserExit,
   abortUserExit,

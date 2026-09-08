@@ -1,110 +1,136 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox, Modal, Select, Table } from 'antd';
+import { AutoComplete, Button, Checkbox, Input, Modal, Select, Table, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import { TriangleAlert } from 'lucide-react';
+import {
+  ImportExportFileType,
+  ImportPreviewErrorCode,
+  ImportUnmappedTarget,
+  SKIP_IMPORT_SOURCE_FIELD,
+} from '@/constants/importExport';
 import i18n from '@/i18n';
-import sqlService, { IImportPreview, ICsvOptions } from '@/service/sql';
-import { ImportExportFileType } from '@/constants/importExport';
+import sqlService, { ICsvOptions, IImportPreview } from '@/service/sql';
+import {
+  buildImportMappingRows,
+  buildInitialImportMapping,
+  getDuplicateImportMappings,
+  getImportPreviewErrorMessage,
+  ImportMappingRow,
+} from './mapping';
+import { useStyles } from './style';
+import type { FileUrl } from '@/components/UploadLocalFile';
+import { stageSelectedImportFile } from './fileStaging';
 import {
   buildCsvOptionsForTaskSubmit,
-  csvOptionsToPreviewParam,
   DEFAULT_CSV_OPTIONS,
   inferImportFileFormat,
-} from '@/blocks/ImportAndExport/utils/csvOptions';
+} from '../../utils/csvOptions';
 
 interface IProps {
   dataSourceId: number;
   databaseName: string;
   schemaName?: string;
   tableName: string;
-  file: File;
+  file: FileUrl;
   onSubmitted: (taskId: number) => void;
 }
 
-const SKIP = '__skip__';
-
 /**
- * Import preview and column mapping (MYSQL-IMPORT-001). Loads a bounded preview of the
+ * Database-independent import preview and column mapping. Loads a bounded preview of the
  * file, lets the user remap source fields to target columns (or skip them), chooses how
  * unmapped target columns are filled (DEFAULT or NULL), executes the import, and reports
- * row-level errors. Preview and execution share the backend parser.
+ * task progress. Preview and execution share the backend parser.
  */
-const ImportMappingContent = ({
-  dataSourceId,
-  databaseName,
-  schemaName,
-  tableName,
-  file,
-  onSubmitted,
-}: IProps) => {
+const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableName, file, onSubmitted }: IProps) => {
+  const { styles, cx } = useStyles();
+  const [modal, modalContextHolder] = Modal.useModal();
   const [preview, setPreview] = useState<IImportPreview | null>(null);
   const [fileId, setFileId] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mapping, setMapping] = useState<Record<string, string>>({});
-  const [unmappedTarget, setUnmappedTarget] = useState<'DEFAULT' | 'NULL'>('DEFAULT');
+  const [unmappedTarget, setUnmappedTarget] = useState(ImportUnmappedTarget.DEFAULT);
   const [executing, setExecuting] = useState(false);
   const [csvOptions, setCsvOptions] = useState<ICsvOptions>(DEFAULT_CSV_OPTIONS);
-  const fileFormat = useMemo(() => inferImportFileFormat(file.name), [file.name]);
-  const isCsv = fileFormat === ImportExportFileType.CSV;
+  const selectedFileName = file.fileName || file.file?.name || file.filePath || '';
+  const isCsv = inferImportFileFormat(selectedFileName) === ImportExportFileType.CSV;
+  const resolveErrorMessage = useCallback(
+    (requestError: unknown) =>
+      getImportPreviewErrorMessage(requestError, i18n('common.text.failure'), {
+        [ImportPreviewErrorCode.DUPLICATE_SOURCE_COLUMNS]: i18n('workspace.importExport.duplicateSourceColumns'),
+      }),
+    [],
+  );
 
-  const load = useCallback((stagedFileId: string) => {
+  useEffect(() => {
+    let active = true;
+    setFileId(undefined);
     setLoading(true);
     setError(null);
-    let previewCsvOptions: string | undefined;
+    stageSelectedImportFile(file, sqlService.uploadImportFile, sqlService.stageDesktopImportFile)
+      .then((id) => {
+        if (active) {
+          setFileId(id);
+        }
+      })
+      .catch((e) => {
+        if (active) {
+          setError(resolveErrorMessage(e));
+          setLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [file, resolveErrorMessage]);
+
+  useEffect(() => {
+    if (!fileId) {
+      return;
+    }
+    let active = true;
+    let validatedCsvOptions: ICsvOptions | undefined;
     try {
-      previewCsvOptions = csvOptionsToPreviewParam(isCsv, csvOptions);
+      validatedCsvOptions = buildCsvOptionsForTaskSubmit(isCsv, csvOptions);
     } catch (e) {
       setError(e instanceof Error ? e.message : i18n('common.text.failure'));
       setLoading(false);
       return;
     }
+    setLoading(true);
+    setError(null);
     sqlService
       .getImportPreview({
         dataSourceId,
         databaseName,
         schemaName,
         tableName,
-        fileId: stagedFileId,
-        csvOptions: previewCsvOptions,
+        fileId,
+        csvOptions: validatedCsvOptions,
       })
       .then((data) => {
+        if (!active) {
+          return;
+        }
         setPreview(data);
-        const auto: Record<string, string> = {};
-        data.suggestedMapping.forEach((m) => {
-          auto[m.sourceColumn] = m.targetColumn;
-        });
-        setMapping(auto);
+        setMapping(buildInitialImportMapping(data.sourceColumns, data.suggestedMapping));
       })
-      .catch((e) => {
-        setError(e?.message || i18n('common.text.failure'));
-      })
-      .finally(() => setLoading(false));
-  }, [dataSourceId, databaseName, schemaName, tableName, isCsv, csvOptions]);
-
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-    sqlService
-      .uploadImportFile({ file })
-      .then((id) => {
-        setFileId(id);
-        load(id);
-      })
-      .catch((e) => {
-        setError(e?.message || i18n('common.text.failure'));
-        setLoading(false);
-      });
-  }, [file, load]);
+      .catch((e) => active && setError(resolveErrorMessage(e)))
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, [csvOptions, dataSourceId, databaseName, fileId, isCsv, resolveErrorMessage, schemaName, tableName]);
 
   const targetOptions = useMemo(() => {
     if (!preview) {
       return [];
     }
     return [
-      { value: SKIP, label: i18n('workspace.importExport.skipSourceField') },
+      { value: SKIP_IMPORT_SOURCE_FIELD, label: i18n('workspace.importExport.skipSourceField') },
       ...preview.targetColumns.map((c) => ({
         value: c.name,
-        label: `${c.name} (${c.dataType}${c.nullable ? '' : ', NOT NULL'})`,
+        label: `${c.name} (${c.dataType}${c.nullable ? '' : ', NOT NULL'})${c.comment ? ` - ${c.comment}` : ''}`,
       })),
     ];
   }, [preview]);
@@ -118,61 +144,141 @@ const ImportMappingContent = ({
         !c.nullable &&
         !c.autoIncrement &&
         !Object.values(mapping).includes(c.name) &&
-        (unmappedTarget === 'NULL' || (c.defaultValue === null && unmappedTarget === 'DEFAULT')),
+        (unmappedTarget === ImportUnmappedTarget.NULL ||
+          (c.defaultValue === null && unmappedTarget === ImportUnmappedTarget.DEFAULT)),
     );
   }, [preview, mapping, unmappedTarget]);
 
-  const columns: ColumnsType<{ name: string; sampleValues: { value: string; type: string }[] }> = [
-    { title: i18n('workspace.importExport.sourceField'), dataIndex: 'name', width: 180 },
+  const mappingRows = preview ? buildImportMappingRows(preview.sourceColumns, preview.targetColumns, mapping) : [];
+  const duplicateMappings = getDuplicateImportMappings(mapping);
+  const updateMapping = (sourceColumn: string, targetColumn: string) => {
+    setMapping((previous) => ({ ...previous, [sourceColumn]: targetColumn }));
+  };
+
+  const columns: ColumnsType<ImportMappingRow<IImportPreview['targetColumns'][number]>> = [
     {
-      title: i18n('workspace.importExport.sampleValues'),
-      dataIndex: 'sampleValues',
-      render: (values: { value: string; type: string }[]) => (
-        <span style={{ color: 'var(--text-color-secondary)' }}>
-          {values.slice(0, 3).map((value, index) => (
-            <span key={index}>
-              {index > 0 && ', '}
-              {value.value}
-              {value.type !== 'string' && value.type !== 'empty' && ` [${value.type}]`}
-            </span>
-          ))}
-        </span>
-      ),
+      title: i18n('workspace.importExport.sourceField'),
+      width: '28%',
+      render: (_, record) =>
+        record.kind === 'source' ? (
+          record.sourceColumn
+        ) : (
+          <span className={styles.unmappedSource}>{i18n('workspace.importExport.unmapped')}</span>
+        ),
     },
     {
       title: i18n('workspace.importExport.targetColumn'),
-      width: 260,
-      render: (_, record) => (
-        <Select
-          style={{ width: '100%' }}
-          value={mapping[record.name]}
-          options={targetOptions}
-          onChange={(v) => setMapping((prev) => ({ ...prev, [record.name]: v }))}
-        />
-      ),
+      width: '52%',
+      render: (_, record) =>
+        record.kind === 'source' ? (
+          <div className={styles.targetColumnCell}>
+            {duplicateMappings[record.sourceColumn] && (
+              <span className={styles.mappingWarningSlot}>
+                <Tooltip
+                  title={i18n(
+                    'workspace.importExport.duplicateMappingContent',
+                    duplicateMappings[record.sourceColumn].targetColumn,
+                    duplicateMappings[record.sourceColumn].mappedSource,
+                  )}
+                >
+                  <span
+                    className={styles.mappingWarningIcon}
+                    role="img"
+                    aria-label={i18n(
+                      'workspace.importExport.duplicateMappingContent',
+                      duplicateMappings[record.sourceColumn].targetColumn,
+                      duplicateMappings[record.sourceColumn].mappedSource,
+                    )}
+                  >
+                    <TriangleAlert size={16} />
+                  </span>
+                </Tooltip>
+              </span>
+            )}
+            <Select
+              className={cx(
+                styles.targetColumnSelect,
+                duplicateMappings[record.sourceColumn] && styles.targetColumnSelectWarning,
+              )}
+              value={mapping[record.sourceColumn]}
+              options={targetOptions}
+              onChange={(value) => updateMapping(record.sourceColumn, value)}
+            />
+          </div>
+        ) : (
+          targetOptions.find(({ value }) => value === record.targetColumn.name)?.label
+        ),
+    },
+    {
+      title: i18n('workspace.importExport.mappingStatus'),
+      width: '20%',
+      render: (_, record) => {
+        if (record.kind === 'source') {
+          return mapping[record.sourceColumn] === SKIP_IMPORT_SOURCE_FIELD
+            ? i18n('workspace.importExport.skipped')
+            : i18n('workspace.importExport.mapped');
+        }
+        if (blockedColumns.some(({ name }) => name === record.targetColumn.name)) {
+          return <span className={styles.requiredStatus}>{i18n('workspace.importExport.unmappedRequired')}</span>;
+        }
+        if (record.targetColumn.autoIncrement) {
+          return i18n('workspace.importExport.unmappedAutoIncrement');
+        }
+        return unmappedTarget === ImportUnmappedTarget.NULL
+          ? i18n('workspace.importExport.unmappedNullValue')
+          : i18n('workspace.importExport.unmappedDefaultValue');
+      },
     },
   ];
 
+  const previewColumns: ColumnsType<{ key: number; values: string[] }> =
+    preview?.sourceColumns.map((column, index) => ({
+      title: column,
+      width: 180,
+      ellipsis: true,
+      render: (_, record) => record.values[index],
+    })) || [];
+
+  const previewData =
+    preview?.previewData.map((values, index) => ({
+      key: index,
+      values,
+    })) || [];
+
   const execute = () => {
+    const duplicateMapping = Object.values(duplicateMappings)[0];
+    if (duplicateMapping) {
+      modal.error({
+        title: i18n('workspace.importExport.duplicateMappingTitle'),
+        content: i18n(
+          'workspace.importExport.duplicateMappingContent',
+          duplicateMapping.targetColumn,
+          duplicateMapping.mappedSource,
+        ),
+      });
+      return;
+    }
     if (blockedColumns.length > 0) {
-      Modal.error({
+      modal.error({
         title: i18n('workspace.importExport.requiredUnmapped'),
         content: blockedColumns.map((c) => `${c.name} (${c.dataType})`).join(', '),
       });
       return;
     }
+    setExecuting(true);
     setError(null);
+    if (!fileId) {
+      setExecuting(false);
+      return;
+    }
     let taskCsvOptions: ICsvOptions | undefined;
     try {
       taskCsvOptions = buildCsvOptionsForTaskSubmit(isCsv, csvOptions);
     } catch (e) {
+      setExecuting(false);
       setError(e instanceof Error ? e.message : i18n('common.text.failure'));
       return;
     }
-    if (!fileId) {
-      return;
-    }
-    setExecuting(true);
     sqlService
       .executeImportWithMapping({
         dataSourceId,
@@ -181,111 +287,109 @@ const ImportMappingContent = ({
         tableName,
         fileId,
         mappings: Object.entries(mapping)
-          .filter(([, target]) => target && target !== SKIP)
+          .filter(([, target]) => target && target !== SKIP_IMPORT_SOURCE_FIELD)
           .map(([source, target]) => ({ sourceColumn: source, targetColumn: target })),
         unmappedTarget,
         csvOptions: taskCsvOptions,
       })
-      .then((response) => onSubmitted(response.taskId))
-      .catch((e) => setError(e?.message || i18n('common.text.failure')))
+      .then((result) => onSubmitted(result.taskId))
+      .catch((e) => setError(resolveErrorMessage(e)))
       .finally(() => setExecuting(false));
   };
 
   return (
-    <div>
-      {error && <div style={{ color: 'var(--text-color-danger)', marginBottom: 8 }}>{error}</div>}
+    <div className={styles.container}>
+      {modalContextHolder}
+      {error && <div className={styles.error}>{error}</div>}
       {isCsv && (
-        <div style={{ marginBottom: 8, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Select
-            style={{ width: 140 }}
+        <div className={styles.csvOptions}>
+          <strong className={styles.sectionTitle}>{i18n('workspace.importExport.csvOptions')}</strong>
+          <AutoComplete
+            aria-label={i18n('workspace.importExport.encoding')}
+            className={styles.encodingInput}
             value={csvOptions.encoding}
-            onChange={(v) => setCsvOptions((prev) => ({ ...prev, encoding: v }))}
-            options={['AUTO', 'UTF-8', 'UTF-16LE', 'UTF-16BE', 'GB18030', 'ISO-8859-1', 'WINDOWS-1252', 'SHIFT_JIS', 'BIG5'].map(
-              (e) => ({ value: e, label: e }),
-            )}
+            options={['AUTO', 'UTF-8', 'UTF-16LE', 'UTF-16BE', 'GB18030', 'ISO-8859-1'].map((value) => ({ value }))}
+            onChange={(encoding) => setCsvOptions((current) => ({ ...current, encoding }))}
+          />
+          <Input
+            aria-label={i18n('workspace.importExport.delimiter')}
+            className={styles.characterInput}
+            maxLength={1}
+            value={csvOptions.delimiter}
+            onChange={(event) => setCsvOptions((current) => ({ ...current, delimiter: event.target.value }))}
           />
           <Select
-            style={{ width: 90 }}
-            value={csvOptions.delimiter}
-            onChange={(v) => setCsvOptions((prev) => ({ ...prev, delimiter: v }))}
+            aria-label={i18n('workspace.importExport.quote')}
+            className={styles.characterInput}
+            value={csvOptions.quote}
             options={[
-              { value: ',', label: i18n('workspace.importExport.delimiterComma') },
-              { value: ';', label: i18n('workspace.importExport.delimiterSemicolon') },
-              { value: '\t', label: i18n('workspace.importExport.delimiterTab') },
-              { value: '|', label: i18n('workspace.importExport.delimiterPipe') },
+              { value: '"', label: i18n('workspace.importExport.quoteDouble') },
+              { value: "'", label: i18n('workspace.importExport.quoteSingle') },
             ]}
+            onChange={(quote) => setCsvOptions((current) => ({ ...current, quote }))}
+          />
+          <Select
+            aria-label={i18n('workspace.importExport.escape')}
+            className={styles.encodingInput}
+            value={csvOptions.escape}
+            options={[
+              { value: '"', label: i18n('workspace.importExport.escapeDouble') },
+              { value: '\\', label: i18n('workspace.importExport.escapeBackslash') },
+            ]}
+            onChange={(escape) => setCsvOptions((current) => ({ ...current, escape }))}
           />
           <Checkbox
             checked={csvOptions.hasHeader}
-            onChange={(e) => setCsvOptions((prev) => ({ ...prev, hasHeader: e.target.checked }))}
+            onChange={(event) => setCsvOptions((current) => ({ ...current, hasHeader: event.target.checked }))}
           >
             {i18n('workspace.importExport.hasHeader')}
           </Checkbox>
           <Checkbox
             checked={csvOptions.emptyAsNull}
-            onChange={(e) => setCsvOptions((prev) => ({ ...prev, emptyAsNull: e.target.checked }))}
+            onChange={(event) => setCsvOptions((current) => ({ ...current, emptyAsNull: event.target.checked }))}
           >
             {i18n('workspace.importExport.emptyAsNull')}
           </Checkbox>
-          <span style={{ color: 'var(--text-color-secondary)' }}>{i18n('workspace.importExport.csvOptionsHint')}</span>
-          <Select
-            style={{ width: 120 }}
-            value={csvOptions.quote}
-            onChange={(v) => setCsvOptions((prev) => ({ ...prev, quote: v }))}
-            options={[
-              { value: '"', label: i18n('workspace.importExport.quoteDouble') },
-              { value: "'", label: i18n('workspace.importExport.quoteSingle') },
-            ]}
-          />
-          <Select
-            style={{ width: 140 }}
-            value={csvOptions.escape}
-            onChange={(v) => setCsvOptions((prev) => ({ ...prev, escape: v }))}
-            options={[
-              { value: '"', label: i18n('workspace.importExport.escapeDouble') },
-              { value: '\\', label: i18n('workspace.importExport.escapeBackslash') },
-            ]}
-          />
-          <Select
-            style={{ width: 110 }}
-            value={csvOptions.newline}
-            onChange={(v) => setCsvOptions((prev) => ({ ...prev, newline: v }))}
-            options={['LF', 'CRLF', 'CR'].map((value) => ({ value, label: value }))}
-          />
         </div>
       )}
       {preview && (
         <>
-          <div style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span>{i18n('workspace.importExport.previewHint', preview.previewRows)}</span>
+          <div className={styles.toolbar}>
+            <strong className={styles.sectionTitle}>{i18n('workspace.importExport.fieldMapping')}</strong>
             <Select
-              style={{ width: 200 }}
+              className={styles.unmappedTargetSelect}
               value={unmappedTarget}
               onChange={(v) => setUnmappedTarget(v)}
               options={[
-                { value: 'DEFAULT', label: i18n('workspace.importExport.unmappedDefault') },
-                { value: 'NULL', label: i18n('workspace.importExport.unmappedNull') },
+                { value: ImportUnmappedTarget.DEFAULT, label: i18n('workspace.importExport.unmappedDefault') },
+                { value: ImportUnmappedTarget.NULL, label: i18n('workspace.importExport.unmappedNull') },
               ]}
             />
-            {blockedColumns.length > 0 && (
-              <span style={{ color: 'var(--text-color-danger)' }}>
-                {i18n('workspace.importExport.requiredUnmapped')}: {blockedColumns.map((c) => c.name).join(', ')}
-              </span>
-            )}
-            <Button size="small" onClick={() => fileId && load(fileId)} loading={loading}>
-              {i18n('common.button.refresh')}
-            </Button>
           </div>
           <Table
+            className={styles.mappingTable}
             size="small"
-            rowKey="name"
+            rowKey="key"
             columns={columns}
-            dataSource={preview.sourceColumns}
+            dataSource={mappingRows}
             loading={loading}
             pagination={false}
-            scroll={{ x: 700, y: 260 }}
+            tableLayout="fixed"
+            scroll={{ y: 220 }}
           />
-          <div style={{ marginTop: 12, textAlign: 'right' }}>
+          <strong className={styles.previewTitle}>
+            {i18n('workspace.importExport.dataPreview', preview.previewLimit)}
+          </strong>
+          <Table
+            className={styles.previewTable}
+            size="small"
+            rowKey="key"
+            columns={previewColumns}
+            dataSource={previewData}
+            pagination={false}
+            scroll={{ x: 'max-content', y: 380 }}
+          />
+          <div className={styles.actions}>
             <Button type="primary" loading={executing} onClick={execute}>
               {i18n('common.button.execute')}
             </Button>

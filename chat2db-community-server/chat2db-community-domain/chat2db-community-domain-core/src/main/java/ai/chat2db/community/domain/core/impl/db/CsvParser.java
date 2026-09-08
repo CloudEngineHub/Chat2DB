@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 /** Strict CSV parser shared by the import preview and execution paths. */
-final class CsvParser {
+public final class CsvParser {
 
     static final String DEFAULT_ENCODING = CsvOptions.DEFAULT_ENCODING;
     private final CsvOptions options;
@@ -40,7 +40,7 @@ final class CsvParser {
                 .build());
     }
 
-    CsvParser(CsvOptions options) {
+    public CsvParser(CsvOptions options) {
         this.options = (options == null ? CsvOptions.defaults() : options).validate();
         String delimiter = this.options.getDelimiter();
         String quote = this.options.getQuote();
@@ -56,7 +56,7 @@ final class CsvParser {
         return parse(new OneByteInputStream(bytes), limit);
     }
 
-    CsvResult parse(InputStream inputStream, int limit) {
+    public CsvResult parse(InputStream inputStream, int limit) {
         try {
             BomAwareInput bomAwareInput = detectBom(new OneByteInputStream(inputStream));
             CharsetDecoder decoder = bomAwareInput.charset().newDecoder()
@@ -283,10 +283,10 @@ final class CsvParser {
         return Charset.forName(options.getEncoding());
     }
 
-    record CsvCell(String value, boolean quoted) {
+    public record CsvCell(String value, boolean quoted) {
     }
 
-    record CsvResult(List<Map<Integer, String>> rows, List<Map<Integer, CsvCell>> cells, int headerRowCount) {
+    public record CsvResult(List<Map<Integer, String>> rows, List<Map<Integer, CsvCell>> cells, int headerRowCount) {
     }
 
     private record BomAwareInput(InputStream inputStream, Charset charset) {

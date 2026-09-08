@@ -64,8 +64,6 @@ public class TaskWebConverter {
                 .format(format)
                 .dataTimeFormat(request.getDataTimeFormat())
                 .csvOptions(csvOptions(format, request.getCsvOptions()))
-                .mappings(request.getMappings())
-                .unmappedTarget(normalize(request.getUnmappedTarget()))
                 .build();
     }
 
