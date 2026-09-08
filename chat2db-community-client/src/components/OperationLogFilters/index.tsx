@@ -17,11 +17,9 @@ function OperationLogFilters({ className, value, onChange, size = 'middle' }: IP
   const { styles } = useStyles();
   const { dataSourceList, databaseList, schemaList, selectDatabase, onChangeSelectDatabase } = useSelectDatabase({});
   const hasDataSource = value.dataSourceId !== undefined;
-  const databaseEnabled = hasDataSource && selectDatabase?.supportDatabase !== false;
-  const schemaEnabled =
-    hasDataSource &&
-    selectDatabase?.supportSchema !== false &&
-    (selectDatabase?.supportDatabase === false || !!value.databaseName);
+  const showDatabase = hasDataSource && selectDatabase?.supportDatabase === true;
+  const showSchema = hasDataSource && selectDatabase?.supportSchema === true;
+  const schemaEnabled = showSchema && (!showDatabase || !!value.databaseName);
 
   const handleDataSourceChange = (dataSourceId?: number) => {
     onChangeSelectDatabase({ dataSourceId });
@@ -52,32 +50,35 @@ function OperationLogFilters({ className, value, onChange, size = 'middle' }: IP
         value={value.dataSourceId}
         onChange={handleDataSourceChange}
       />
-      <Select
-        allowClear
-        showSearch
-        className={styles.scopeFilter}
-        disabled={!databaseEnabled}
-        loading={databaseList === null}
-        optionFilterProp="label"
-        options={databaseList || []}
-        placeholder={i18n('common.database.title')}
-        size={size}
-        value={value.databaseName}
-        onChange={handleDatabaseChange}
-      />
-      <Select
-        allowClear
-        showSearch
-        className={styles.scopeFilter}
-        disabled={!schemaEnabled}
-        loading={schemaList === null}
-        optionFilterProp="label"
-        options={schemaList || []}
-        placeholder={i18n('common.schema.title')}
-        size={size}
-        value={value.schemaName}
-        onChange={handleSchemaChange}
-      />
+      {showDatabase && (
+        <Select
+          allowClear
+          showSearch
+          className={styles.scopeFilter}
+          loading={databaseList === null}
+          optionFilterProp="label"
+          options={databaseList || []}
+          placeholder={i18n('common.database.title')}
+          size={size}
+          value={value.databaseName}
+          onChange={handleDatabaseChange}
+        />
+      )}
+      {showSchema && (
+        <Select
+          allowClear
+          showSearch
+          className={styles.scopeFilter}
+          disabled={!schemaEnabled}
+          loading={schemaList === null}
+          optionFilterProp="label"
+          options={schemaList || []}
+          placeholder={i18n('common.schema.title')}
+          size={size}
+          value={value.schemaName}
+          onChange={handleSchemaChange}
+        />
+      )}
       <Input
         allowClear
         className={styles.searchFilter}

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { DatabaseTypeCode } from '@/constants/common';
 import { TreeNodeType } from '@/constants/tree';
 import type { TreeNodeData } from '@/typings/tree';
 import {
@@ -7,6 +8,7 @@ import {
   hasApplicableDatabaseNameChange,
   invalidateDatabaseOptionRequests,
   invalidateDataSourceOptionRequests,
+  normalizeDataSourceOptions,
   normalizeDatabaseOptions,
   normalizeSchemaOptions,
   runDatabaseOptionRequest,
@@ -186,6 +188,25 @@ function testOnlyRealNamedDatabaseAndSchemaNodesBecomeOptions() {
   assert.deepEqual(normalizeSchemaOptions(schemaNodes), [{ value: 'public', label: 'public' }]);
 }
 
+function testDataSourceOptionsFollowTheLatestTreeState() {
+  const first = treeNode(TreeNodeType.DATA_SOURCE, 'First', {
+    dataSourceId: 1,
+    databaseType: DatabaseTypeCode.MYSQL,
+  });
+  const second = treeNode(TreeNodeType.DATA_SOURCE, 'Second', {
+    dataSourceId: 2,
+    databaseType: DatabaseTypeCode.POSTGRESQL,
+  });
+
+  assert.deepEqual(normalizeDataSourceOptions([first]), [
+    { value: 1, label: 'First', databaseType: DatabaseTypeCode.MYSQL },
+  ]);
+  assert.deepEqual(normalizeDataSourceOptions([first, second]), [
+    { value: 1, label: 'First', databaseType: DatabaseTypeCode.MYSQL },
+    { value: 2, label: 'Second', databaseType: DatabaseTypeCode.POSTGRESQL },
+  ]);
+}
+
 async function run() {
   await testLatestDataSourceDatabaseRequestWins();
   await testLatestDatabaseSchemaRequestWins();
@@ -193,6 +214,7 @@ async function run() {
   await testUnmountInvalidatesBothDependentLevels();
   await testSchemaOnlyFullInitializationKeepsSchemaRequest();
   testOnlyRealNamedDatabaseAndSchemaNodesBecomeOptions();
+  testDataSourceOptionsFollowTheLatestTreeState();
   console.log('Select database request lifecycle tests passed');
 }
 

@@ -1,3 +1,4 @@
+import { DatabaseTypeCode } from '@/constants/common';
 import { TreeNodeType } from '@/constants/tree';
 import type { TreeNodeData } from '@/typings/tree';
 import {
@@ -10,6 +11,12 @@ import {
 export interface SelectDatabaseOption {
   value: string;
   label: string;
+}
+
+export interface SelectDataSourceOption {
+  value: number;
+  label: string;
+  databaseType: DatabaseTypeCode;
 }
 
 interface LatestOptionRequest {
@@ -115,6 +122,23 @@ export function runSchemaOptionRequest<T>(
   onError: () => void,
 ) {
   return runLatestOptionRequest(lifecycle.schema, load, onSuccess, onError);
+}
+
+export function normalizeDataSourceOptions(nodes: TreeNodeData[]): SelectDataSourceOption[] {
+  return nodes.reduce<SelectDataSourceOption[]>((options, node) => {
+    const dataSourceId = node.extraParams?.dataSourceId;
+    const databaseType = node.extraParams?.databaseType;
+    if (node.treeNodeType !== TreeNodeType.DATA_SOURCE || dataSourceId === undefined || !databaseType) {
+      return options;
+    }
+
+    options.push({
+      value: dataSourceId,
+      label: node.originalTitle,
+      databaseType,
+    });
+    return options;
+  }, []);
 }
 
 function normalizeNamedOptions(

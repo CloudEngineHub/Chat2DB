@@ -1,6 +1,7 @@
 import { normalizeTreeNodeLoadResult, treeConfig } from '@/blocks/NewTree/treeConfig';
 import { DatabaseTypeCode, TreeNodeType } from '@/constants';
 import { databaseMap } from '@/constants/database';
+import { useTreeStore } from '@/store/tree';
 import { getDatabaseSupport } from '@/utils/database';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -10,6 +11,7 @@ import {
   hasApplicableDatabaseNameChange,
   invalidateDatabaseOptionRequests,
   invalidateDataSourceOptionRequests,
+  normalizeDataSourceOptions,
   normalizeDatabaseOptions,
   normalizeSchemaOptions,
   runDatabaseOptionRequest,
@@ -37,27 +39,22 @@ interface IUseSelectDatabaseProps {
   astrictDatabaseType?: DatabaseTypeCode;
 }
 
-interface DataSourceOption {
-  value: number;
-  label: string;
-  databaseType: DatabaseTypeCode;
-}
-
 const useSelectDatabase = (props: IUseSelectDatabaseProps) => {
   const { astrictDatabaseType } = props;
-  const [dataSourceList, setDataSourceList] = useState<DataSourceOption[] | null>([]);
+  const treeDataSourceList = useTreeStore((state) => state.dataSourceList);
+  const dataSourceList = useMemo(
+    () => (treeDataSourceList === null ? null : normalizeDataSourceOptions(treeDataSourceList)),
+    [treeDataSourceList],
+  );
   const [databaseList, setDatabaseList] = useState<SelectDatabaseOption[] | null>([]);
   const [schemaList, setSchemaList] = useState<SelectDatabaseOption[] | null>([]);
   const [selectDatabase, setSelectDatabase] = useState<ISelectDatabase>();
-  const mountedRef = useRef(true);
   const requestLifecycleRef = useRef(createSelectDatabaseRequestLifecycle());
   const requestLifecycle = requestLifecycleRef.current;
 
   useEffect(() => {
-    mountedRef.current = true;
     activateSelectDatabaseRequests(requestLifecycle);
     return () => {
-      mountedRef.current = false;
       disposeSelectDatabaseRequests(requestLifecycle);
     };
   }, [requestLifecycle]);
@@ -88,37 +85,6 @@ const useSelectDatabase = (props: IUseSelectDatabaseProps) => {
     }
     return dataSourceList;
   }, [dataSourceList, astrictDatabaseType]);
-
-  const getDataSourceList = () => {
-    setDataSourceList(null);
-    invalidateDataSourceOptionRequests(requestLifecycle);
-    setDatabaseList([]);
-    setSchemaList([]);
-    treeConfig[TreeNodeType.DATA_SOURCES]
-      .getChildren?.({
-        refresh: true,
-      })
-      .then((res) => {
-        if (!mountedRef.current) {
-          return;
-        }
-        const options = normalizeTreeNodeLoadResult(res).children.map((item) => ({
-          value: item.extraParams.dataSourceId!,
-          label: item.originalTitle,
-          databaseType: item.extraParams.databaseType!,
-        }));
-        setDataSourceList(options);
-      })
-      .catch(() => {
-        if (mountedRef.current) {
-          setDataSourceList([]);
-        }
-      });
-  };
-
-  useEffect(() => {
-    getDataSourceList();
-  }, []);
 
   const getDatabaseList = (params: { dataSourceId: number; databaseType: DatabaseTypeCode }) => {
     invalidateDatabaseOptionRequests(requestLifecycle);
