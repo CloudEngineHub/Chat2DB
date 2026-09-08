@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AutoComplete, Button, Checkbox, Input, Modal, Select, Table, Tooltip } from 'antd';
+import { Button, Checkbox, Input, Modal, Select, Table, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { TriangleAlert } from 'lucide-react';
 import {
@@ -20,6 +20,7 @@ import {
 import { useStyles } from './style';
 import type { FileUrl } from '@/components/UploadLocalFile';
 import { stageSelectedImportFile } from './fileStaging';
+import LocalFileEncodingSelect from '@/components/LocalFileEncodingSelect';
 import {
   buildCsvOptionsForTaskSubmit,
   DEFAULT_CSV_OPTIONS,
@@ -304,12 +305,12 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
       {isCsv && (
         <div className={styles.csvOptions}>
           <strong className={styles.sectionTitle}>{i18n('workspace.importExport.csvOptions')}</strong>
-          <AutoComplete
-            aria-label={i18n('workspace.importExport.encoding')}
-            className={styles.encodingInput}
-            value={csvOptions.encoding}
-            options={['AUTO', 'UTF-8', 'UTF-16LE', 'UTF-16BE', 'GB18030', 'ISO-8859-1'].map((value) => ({ value }))}
-            onChange={(encoding) => setCsvOptions((current) => ({ ...current, encoding }))}
+          <LocalFileEncodingSelect
+            charset={csvOptions.encoding === 'AUTO' ? undefined : csvOptions.encoding}
+            disabled={executing}
+            onEncodingChange={async (encoding) => {
+              setCsvOptions((current) => ({ ...current, encoding: encoding || 'AUTO' }));
+            }}
           />
           <Input
             aria-label={i18n('workspace.importExport.delimiter')}
