@@ -34,7 +34,6 @@ class CsvImportValueNormalizerTest {
                 .dateOrder("DMY")
                 .dateTimeOrder("TIME_DATE")
                 .dateDelimiter("/")
-                .customYearDelimiter(true)
                 .yearDelimiter("-")
                 .timeDelimiter(".")
                 .build().validate();

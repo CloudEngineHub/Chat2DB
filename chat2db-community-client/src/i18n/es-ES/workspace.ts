@@ -361,7 +361,6 @@ export default {
   'workspace.importExport.timeTimezoneDate': 'Hora Zona horaria Fecha',
   'workspace.importExport.dateDelimiter': 'Separador de fecha',
   'workspace.importExport.yearDelimiter': 'Separador de año',
-  'workspace.importExport.customYearDelimiter': 'Usar un separador de año distinto',
   'workspace.importExport.timeDelimiter': 'Separador de hora',
   'workspace.importExport.decimalSymbol': 'Símbolo decimal',
   'workspace.importExport.dateTimeExample': 'Ejemplos',

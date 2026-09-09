@@ -15,7 +15,6 @@ export const DEFAULT_CSV_OPTIONS: ICsvOptions = {
   dateOrder: 'YMD',
   dateTimeOrder: 'DATE_TIME',
   dateDelimiter: '-',
-  customYearDelimiter: false,
   yearDelimiter: '-',
   timeDelimiter: ':',
   decimalSymbol: '.',
@@ -46,7 +45,6 @@ export function validateCsvOptions(options: ICsvOptions): ICsvOptions {
     dateOrder: options.dateOrder || DEFAULT_CSV_OPTIONS.dateOrder,
     dateTimeOrder: options.dateTimeOrder || DEFAULT_CSV_OPTIONS.dateTimeOrder,
     dateDelimiter: options.dateDelimiter || DEFAULT_CSV_OPTIONS.dateDelimiter,
-    customYearDelimiter: options.customYearDelimiter ?? DEFAULT_CSV_OPTIONS.customYearDelimiter,
     yearDelimiter: options.yearDelimiter || options.dateDelimiter || DEFAULT_CSV_OPTIONS.yearDelimiter,
     timeDelimiter: options.timeDelimiter || DEFAULT_CSV_OPTIONS.timeDelimiter,
     decimalSymbol: options.decimalSymbol || DEFAULT_CSV_OPTIONS.decimalSymbol,
@@ -94,7 +92,7 @@ export function getCsvDateTimeExamples(options: ICsvOptions): string[] {
     const order = options.dateOrder.split('') as Array<keyof typeof parts>;
     const separators = [0, 1].map((index) => {
       const nextToYear = order[index] === 'Y' || order[index + 1] === 'Y';
-      return options.customYearDelimiter && nextToYear ? options.yearDelimiter : options.dateDelimiter;
+      return nextToYear ? options.yearDelimiter : options.dateDelimiter;
     });
     const date = `${parts[order[0]]}${separators[0]}${parts[order[1]]}${separators[1]}${parts[order[2]]}`;
     const time = `15${options.timeDelimiter}30${options.timeDelimiter}38`;

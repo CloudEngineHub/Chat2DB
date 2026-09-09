@@ -177,8 +177,7 @@ final class CsvImportValueNormalizer {
     }
 
     private static String separator(char left, char right, CsvOptions options) {
-        return Boolean.TRUE.equals(options.getCustomYearDelimiter()) && (left == 'Y' || right == 'Y')
-                ? options.getYearDelimiter() : options.getDateDelimiter();
+        return left == 'Y' || right == 'Y' ? options.getYearDelimiter() : options.getDateDelimiter();
     }
 
     private static LocalTime parseTime(String value, CsvOptions options) {

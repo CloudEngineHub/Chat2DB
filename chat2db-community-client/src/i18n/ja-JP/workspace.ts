@@ -359,7 +359,6 @@ export default {
   'workspace.importExport.timeTimezoneDate': '時刻 タイムゾーン 日付',
   'workspace.importExport.dateDelimiter': '日付区切り文字',
   'workspace.importExport.yearDelimiter': '年区切り文字',
-  'workspace.importExport.customYearDelimiter': '年に別の区切り文字を使用',
   'workspace.importExport.timeDelimiter': '時刻区切り文字',
   'workspace.importExport.decimalSymbol': '小数点記号',
   'workspace.importExport.dateTimeExample': '形式例',

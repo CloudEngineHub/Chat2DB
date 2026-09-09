@@ -62,8 +62,6 @@ public class CsvOptions {
 
     private String dateDelimiter;
 
-    private Boolean customYearDelimiter;
-
     private String yearDelimiter;
 
     private String timeDelimiter;
@@ -84,7 +82,6 @@ public class CsvOptions {
                 .dateOrder(DEFAULT_DATE_ORDER)
                 .dateTimeOrder(DEFAULT_DATE_TIME_ORDER)
                 .dateDelimiter(DEFAULT_DATE_DELIMITER)
-                .customYearDelimiter(false)
                 .yearDelimiter(DEFAULT_DATE_DELIMITER)
                 .timeDelimiter(DEFAULT_TIME_DELIMITER)
                 .decimalSymbol(DEFAULT_DECIMAL_SYMBOL)
@@ -110,7 +107,6 @@ public class CsvOptions {
                 .dateOrder(stringValue(values.get("dateOrder"), defaults.getDateOrder()))
                 .dateTimeOrder(stringValue(values.get("dateTimeOrder"), defaults.getDateTimeOrder()))
                 .dateDelimiter(stringValue(values.get("dateDelimiter"), defaults.getDateDelimiter()))
-                .customYearDelimiter(booleanValue(values.get("customYearDelimiter"), false))
                 .yearDelimiter(stringValue(values.get("yearDelimiter"), defaults.getYearDelimiter()))
                 .timeDelimiter(stringValue(values.get("timeDelimiter"), defaults.getTimeDelimiter()))
                 .decimalSymbol(stringValue(values.get("decimalSymbol"), defaults.getDecimalSymbol()))
@@ -168,7 +164,6 @@ public class CsvOptions {
         values.put("dateOrder", options.dateOrder);
         values.put("dateTimeOrder", options.dateTimeOrder);
         values.put("dateDelimiter", options.dateDelimiter);
-        values.put("customYearDelimiter", options.customYearDelimiter);
         values.put("yearDelimiter", options.yearDelimiter);
         values.put("timeDelimiter", options.timeDelimiter);
         values.put("decimalSymbol", options.decimalSymbol);
@@ -203,7 +198,6 @@ public class CsvOptions {
                 .dateOrder(normalizeOption(dateOrder, defaults.dateOrder))
                 .dateTimeOrder(normalizeOption(dateTimeOrder, defaults.dateTimeOrder))
                 .dateDelimiter(StringUtils.defaultIfEmpty(dateDelimiter, defaults.dateDelimiter))
-                .customYearDelimiter(Boolean.TRUE.equals(customYearDelimiter))
                 .yearDelimiter(StringUtils.defaultIfEmpty(yearDelimiter,
                         StringUtils.defaultIfEmpty(dateDelimiter, defaults.dateDelimiter)))
                 .timeDelimiter(StringUtils.defaultIfEmpty(timeDelimiter, defaults.timeDelimiter))

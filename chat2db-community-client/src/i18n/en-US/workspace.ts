@@ -359,7 +359,6 @@ export default {
   'workspace.importExport.timeTimezoneDate': 'Time Timezone Date',
   'workspace.importExport.dateDelimiter': 'Date delimiter',
   'workspace.importExport.yearDelimiter': 'Year delimiter',
-  'workspace.importExport.customYearDelimiter': 'Use a separate year delimiter',
   'workspace.importExport.timeDelimiter': 'Time delimiter',
   'workspace.importExport.decimalSymbol': 'Decimal symbol',
   'workspace.importExport.dateTimeExample': 'Examples',

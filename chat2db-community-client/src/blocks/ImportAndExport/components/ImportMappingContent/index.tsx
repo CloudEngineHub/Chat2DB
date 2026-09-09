@@ -580,54 +580,35 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
                           onChange={(dateTimeOrder) => setCsvOptions((current) => ({ ...current, dateTimeOrder }))}
                         />
                       </label>
-                      <div className={styles.dateDelimiterGroup}>
-                        <CharacterOption
-                          label={i18n('workspace.importExport.dateDelimiter')}
-                          value={csvOptions.dateDelimiter}
-                          fieldClassName={styles.csvOptionField}
-                          customInputClassName={styles.customCharacterInput}
-                          options={[
-                            { value: '-', label: i18n('workspace.importExport.delimiterDash') },
-                            { value: '/', label: i18n('workspace.importExport.delimiterSlash') },
-                            { value: '.', label: i18n('workspace.importExport.delimiterDot') },
-                          ]}
-                          onChange={(dateDelimiter) =>
-                            setCsvOptions((current) => ({
-                              ...current,
-                              dateDelimiter,
-                              yearDelimiter: current.customYearDelimiter ? current.yearDelimiter : dateDelimiter,
-                            }))
-                          }
-                        />
-                        <div className={styles.yearDelimiterOption}>
-                          <Checkbox
-                            checked={csvOptions.customYearDelimiter}
-                            onChange={(event) =>
-                              setCsvOptions((current) => ({
-                                ...current,
-                                customYearDelimiter: event.target.checked,
-                                yearDelimiter: event.target.checked ? current.yearDelimiter : current.dateDelimiter,
-                              }))
-                            }
-                          >
-                            {i18n('workspace.importExport.customYearDelimiter')}
-                          </Checkbox>
-                          {csvOptions.customYearDelimiter && (
-                            <CharacterOption
-                              label={i18n('workspace.importExport.yearDelimiter')}
-                              value={csvOptions.yearDelimiter}
-                              fieldClassName={styles.csvOptionField}
-                              customInputClassName={styles.customCharacterInput}
-                              options={[
-                                { value: '-', label: i18n('workspace.importExport.delimiterDash') },
-                                { value: '/', label: i18n('workspace.importExport.delimiterSlash') },
-                                { value: '.', label: i18n('workspace.importExport.delimiterDot') },
-                              ]}
-                              onChange={(yearDelimiter) => setCsvOptions((current) => ({ ...current, yearDelimiter }))}
-                            />
-                          )}
-                        </div>
-                      </div>
+                      <CharacterOption
+                        label={i18n('workspace.importExport.dateDelimiter')}
+                        value={csvOptions.dateDelimiter}
+                        fieldClassName={styles.csvOptionField}
+                        customInputClassName={styles.customCharacterInput}
+                        options={[
+                          { value: '-', label: i18n('workspace.importExport.delimiterDash') },
+                          { value: '/', label: i18n('workspace.importExport.delimiterSlash') },
+                          { value: '.', label: i18n('workspace.importExport.delimiterDot') },
+                        ]}
+                        onChange={(dateDelimiter) =>
+                          setCsvOptions((current) => ({
+                            ...current,
+                            dateDelimiter,
+                          }))
+                        }
+                      />
+                      <CharacterOption
+                        label={i18n('workspace.importExport.yearDelimiter')}
+                        value={csvOptions.yearDelimiter}
+                        fieldClassName={styles.csvOptionField}
+                        customInputClassName={styles.customCharacterInput}
+                        options={[
+                          { value: '-', label: i18n('workspace.importExport.delimiterDash') },
+                          { value: '/', label: i18n('workspace.importExport.delimiterSlash') },
+                          { value: '.', label: i18n('workspace.importExport.delimiterDot') },
+                        ]}
+                        onChange={(yearDelimiter) => setCsvOptions((current) => ({ ...current, yearDelimiter }))}
+                      />
                       <CharacterOption
                         label={i18n('workspace.importExport.timeDelimiter')}
                         value={csvOptions.timeDelimiter}

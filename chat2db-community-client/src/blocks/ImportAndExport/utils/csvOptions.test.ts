@@ -38,11 +38,10 @@ assert.deepEqual(
     dateOrder: 'DMY',
     dateTimeOrder: 'DATE_TIME',
     dateDelimiter: '/',
-    customYearDelimiter: false,
     yearDelimiter: '-',
     timeDelimiter: ':',
   }),
-  ['24/8/23 15:30:38', '24/8/2023 15:30:38', '24/Aug/23 15:30:38', '24/August/23 15:30:38'],
+  ['24/8-23 15:30:38', '24/8-2023 15:30:38', '24/Aug-23 15:30:38', '24/August-23 15:30:38'],
 );
 
 assert.throws(

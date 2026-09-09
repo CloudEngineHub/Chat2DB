@@ -474,7 +474,6 @@ export interface ICsvOptions {
   dateOrder: 'YMD' | 'YDM' | 'MDY' | 'MYD' | 'DMY' | 'DYM';
   dateTimeOrder: 'DATE_TIME' | 'TIME_DATE' | 'DATE_TIME_TIMEZONE' | 'TIME_DATE_TIMEZONE' | 'TIME_TIMEZONE_DATE';
   dateDelimiter: string;
-  customYearDelimiter: boolean;
   yearDelimiter: string;
   timeDelimiter: string;
   decimalSymbol: '.' | ',';

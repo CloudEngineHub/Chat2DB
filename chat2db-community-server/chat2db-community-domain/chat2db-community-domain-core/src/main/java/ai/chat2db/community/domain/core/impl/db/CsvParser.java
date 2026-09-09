@@ -130,7 +130,6 @@ public final class CsvParser {
                 .dateOrder(options.getDateOrder())
                 .dateTimeOrder(options.getDateTimeOrder())
                 .dateDelimiter(options.getDateDelimiter())
-                .customYearDelimiter(options.getCustomYearDelimiter())
                 .yearDelimiter(options.getYearDelimiter())
                 .timeDelimiter(options.getTimeDelimiter())
                 .decimalSymbol(options.getDecimalSymbol())

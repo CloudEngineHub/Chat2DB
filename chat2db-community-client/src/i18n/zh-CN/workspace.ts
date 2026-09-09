@@ -348,7 +348,6 @@ export default {
   'workspace.importExport.timeTimezoneDate': '时间 时区 日期',
   'workspace.importExport.dateDelimiter': '日期分隔符',
   'workspace.importExport.yearDelimiter': '年份分隔符',
-  'workspace.importExport.customYearDelimiter': '使用独立的年份分隔符',
   'workspace.importExport.timeDelimiter': '时间分隔符',
   'workspace.importExport.decimalSymbol': '小数符号',
   'workspace.importExport.dateTimeExample': '格式示例',

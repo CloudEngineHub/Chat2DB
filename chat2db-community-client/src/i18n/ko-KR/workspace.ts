@@ -357,7 +357,6 @@ export default {
   'workspace.importExport.timeTimezoneDate': '시간 시간대 날짜',
   'workspace.importExport.dateDelimiter': '날짜 구분자',
   'workspace.importExport.yearDelimiter': '연도 구분자',
-  'workspace.importExport.customYearDelimiter': '연도에 별도 구분자 사용',
   'workspace.importExport.timeDelimiter': '시간 구분자',
   'workspace.importExport.decimalSymbol': '소수점 기호',
   'workspace.importExport.dateTimeExample': '형식 예시',
