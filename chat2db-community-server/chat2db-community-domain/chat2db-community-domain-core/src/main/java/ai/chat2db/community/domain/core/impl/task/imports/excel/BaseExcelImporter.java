@@ -2,8 +2,13 @@ package ai.chat2db.community.domain.core.impl.task.imports.excel;
 
 import ai.chat2db.community.domain.core.impl.task.imports.BaseImporter;
 import ai.chat2db.community.domain.core.impl.task.imports.ImportSqlExecutor;
+import ai.chat2db.community.domain.api.model.task.TaskConstants;
+import ai.chat2db.community.domain.api.model.task.TaskCancelledException;
 import ai.chat2db.community.domain.api.model.task.ImportTaskSpec;
+import ai.chat2db.community.domain.api.model.task.ImportColumnMapping;
 import ai.chat2db.community.domain.api.model.task.TaskEventCode;
+import ai.chat2db.community.domain.api.model.task.TaskStage;
+import ai.chat2db.community.domain.api.model.task.UnmappedTargetStrategy;
 import ai.chat2db.community.domain.api.service.task.TaskExecutionContext;
 import ai.chat2db.spi.ISqlBuilder;
 import ai.chat2db.spi.IValueProcessor;
@@ -54,11 +59,17 @@ public abstract class BaseExcelImporter extends BaseImporter {
 
         private Map<String, Integer> headMap;
 
+        private Map<String, Integer> mappedHeadMap;
+
         private List<TableColumn> tableColumns;
 
         private List<String> tableColumnList;
 
         private List<String> sqlList;
+
+        private long successCount;
+
+        private long skippedCount;
 
         private static final int BATCH_SIZE = 1000;
 
@@ -87,6 +98,7 @@ public abstract class BaseExcelImporter extends BaseImporter {
             this.taskContext.checkCancelled();
             Map<Integer, String> map = ConverterUtils.convertToStringMap(headMap, context);
             this.headMap = invertMap(map);
+            this.mappedHeadMap = mappedHeadMap();
             this.tableColumns = getTableColumns(columns, this.headMap);
         }
 
@@ -94,7 +106,7 @@ public abstract class BaseExcelImporter extends BaseImporter {
             List<TableColumn> tableColumns = new ArrayList<>();
             this.tableColumnList = new ArrayList<>();
             for (TableColumn column : columns) {
-                if (headMap.containsKey(column.getName().toUpperCase(Locale.ROOT))) {
+                if (shouldInclude(column)) {
                     tableColumns.add(column);
                     this.tableColumnList.add(column.getName());
                 }
@@ -119,6 +131,7 @@ public abstract class BaseExcelImporter extends BaseImporter {
         public void invoke(Map<Integer, String> data, AnalysisContext context) {
             this.taskContext.checkCancelled();
             if (data == null || data.isEmpty()) {
+                skippedCount++;
                 return;
             }
             List<String> values = getValueList(data);
@@ -126,6 +139,7 @@ public abstract class BaseExcelImporter extends BaseImporter {
             String sql = getInsertSql(values);
 
             if (StringUtils.isBlank(sql)) {
+                skippedCount++;
                 return;
             }
             if (sqlList == null) {
@@ -142,7 +156,7 @@ public abstract class BaseExcelImporter extends BaseImporter {
         private List<String> getValueList(Map<Integer, String> data) {
             List<String> values = new ArrayList<>();
             for (TableColumn column : tableColumns) {
-                Integer index = headMap.get(column.getName().toUpperCase(Locale.ROOT));
+                Integer index = sourceIndex(column.getName());
                 if (index == null) {
                     values.add(null);
                     continue;
@@ -156,6 +170,41 @@ public abstract class BaseExcelImporter extends BaseImporter {
                 }
             }
             return values;
+        }
+
+        private Map<String, Integer> mappedHeadMap() {
+            Map<String, Integer> mapped = new HashMap<>();
+            if (spec.getColumnMappings() == null) {
+                return mapped;
+            }
+            for (ImportColumnMapping mapping : spec.getColumnMappings()) {
+                String source = mapping.getSourceColumn();
+                String target = mapping.getTargetColumn();
+                Integer sourceIndex = headMap.get(source == null ? null : source.toUpperCase(Locale.ROOT));
+                if (sourceIndex != null && StringUtils.isNotBlank(target)) {
+                    mapped.put(target.toUpperCase(Locale.ROOT), sourceIndex);
+                }
+            }
+            return mapped;
+        }
+
+        private Integer sourceIndex(String targetColumn) {
+            String target = targetColumn.toUpperCase(Locale.ROOT);
+            if (spec.getColumnMappings() != null) {
+                return mappedHeadMap.get(target);
+            }
+            return headMap.get(target);
+        }
+
+        private boolean shouldInclude(TableColumn column) {
+            if (spec.getColumnMappings() == null) {
+                return sourceIndex(column.getName()) != null;
+            }
+            if (sourceIndex(column.getName()) != null) {
+                return true;
+            }
+            return spec.getUnmappedTarget() == UnmappedTargetStrategy.NULL
+                    && !Boolean.TRUE.equals(column.getAutoIncrement());
         }
 
         private String getInsertSql(List<String> values) {
@@ -179,9 +228,29 @@ public abstract class BaseExcelImporter extends BaseImporter {
             if (sqlList != null && !sqlList.isEmpty()) {
                 taskContext.logInfo(TaskEventCode.BATCH_EXECUTED.name(),
                         String.format("Executing batch insert: %s", sqlList.size()));
-                sqlExecutor.executeBatch(sqlList);
+                int statementCount = sqlList.size();
+                try {
+                    sqlExecutor.executeBatch(sqlList);
+                    successCount += statementCount;
+                    reportImportProgress();
+                } catch (TaskCancelledException e) {
+                    throw e;
+                } catch (Exception e) {
+                    taskContext.logError(TaskEventCode.IMPORT_BATCH_FAILED.name(), "Could not import batch", Map.of(
+                            "statementCount", statementCount,
+                            "message", StringUtils.defaultString(e.getMessage())));
+                    throw e;
+                }
             }
             sqlList = new ArrayList<>();
+        }
+
+        private void reportImportProgress() {
+            long processedRows = successCount + skippedCount;
+            int progress = (int) Math.min(TaskConstants.MAX_RUNNING_PROGRESS,
+                    20 + Math.min(70, processedRows / 100));
+            taskContext.reportProgress(progress, TaskStage.IMPORTING.name(),
+                    String.format("Imported %s rows", successCount));
         }
     }
 
