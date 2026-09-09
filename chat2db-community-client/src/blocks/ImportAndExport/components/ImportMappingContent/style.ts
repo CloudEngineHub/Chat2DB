@@ -2,7 +2,29 @@ import { createStyles } from 'antd-style';
 
 export const useStyles = createStyles(({ css, token }) => ({
   container: css`
+    display: flex;
+    max-height: min(82vh, calc(100vh - 116px));
+    max-height: min(82dvh, calc(100dvh - 116px));
     min-width: 0;
+    flex-direction: column;
+  `,
+  scrollContent: css`
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
+
+    &::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background-color: transparent;
+    }
+
+    &:hover::-webkit-scrollbar-thumb {
+      background-color: ${token.colorFill};
+    }
   `,
   error: css`
     margin-bottom: 8px;
@@ -10,7 +32,8 @@ export const useStyles = createStyles(({ css, token }) => ({
   `,
   previewState: css`
     display: flex;
-    min-height: 430px;
+    min-height: min(430px, 50vh);
+    min-height: min(430px, 50dvh);
     align-items: center;
     justify-content: center;
   `,
@@ -28,13 +51,6 @@ export const useStyles = createStyles(({ css, token }) => ({
     @media (max-width: 720px) {
       white-space: normal;
     }
-  `,
-  toolbar: css`
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-    margin-bottom: 8px;
   `,
   csvOptions: css`
     margin-bottom: 12px;
@@ -60,10 +76,12 @@ export const useStyles = createStyles(({ css, token }) => ({
   customCharacterInput: css`
     padding: 4px 8px;
   `,
-  advancedOptions: css`
+  sections: css`
     padding-top: 4px;
 
     .ant-collapse-header {
+      min-height: 40px;
+      align-items: center !important;
       padding: 6px 0 !important;
       font-weight: 600;
     }
@@ -107,8 +125,8 @@ export const useStyles = createStyles(({ css, token }) => ({
   dateExamples: css`
     display: grid;
     grid-column: 1 / -1;
-    grid-template-columns: auto repeat(4, minmax(0, 1fr));
-    gap: 8px;
+    grid-template-columns: 1fr repeat(4, auto);
+    gap: 18px;
     align-items: center;
     color: ${token.colorTextSecondary};
     font-size: 12px;
@@ -119,11 +137,21 @@ export const useStyles = createStyles(({ css, token }) => ({
       white-space: nowrap;
     }
 
+    code:not(:first-of-type) {
+      padding-left: 18px;
+      border-left: 1px solid ${token.colorBorderSecondary};
+    }
+
     @media (max-width: 900px) {
       grid-template-columns: 1fr 1fr;
 
       > span:first-child {
         grid-column: 1 / -1;
+      }
+
+      code:not(:first-of-type) {
+        padding-left: 0;
+        border-left: 0;
       }
     }
   `,
@@ -131,9 +159,16 @@ export const useStyles = createStyles(({ css, token }) => ({
     grid-column: 1 / -1;
     font-size: 14px;
   `,
-  mappingSectionTitle: css`
-    margin-right: auto;
-    font-size: 14px;
+  mappingControls: css`
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+
+    .ant-checkbox-wrapper {
+      white-space: nowrap;
+    }
   `,
   unmappedTargetSelect: css`
     width: 220px;
@@ -171,26 +206,33 @@ export const useStyles = createStyles(({ css, token }) => ({
     }
   `,
   mappingTable: css`
-    .ant-table-body {
-      overflow-y: auto !important;
-    }
-
     .ant-table-tbody > tr > td {
       border-bottom: 0;
     }
   `,
-  previewTitle: css`
-    display: block;
-    margin: 16px 0 8px;
-    font-size: 14px;
-  `,
-  previewTable: css`
+  scrollableTable: css`
+    .ant-table-ping-left:not(.ant-table-has-fix-left) .ant-table-container::before,
+    .ant-table-ping-right:not(.ant-table-has-fix-right) .ant-table-container::after {
+      box-shadow: none;
+    }
+
     .ant-table-body {
       overflow-y: auto !important;
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+
+      &::-webkit-scrollbar {
+        display: none;
+        width: 0;
+        height: 0;
+      }
     }
   `,
   actions: css`
-    margin-top: 12px;
+    z-index: 2;
+    flex: none;
+    padding-top: 6px;
+    background: ${token.colorBgElevated};
     text-align: right;
   `,
 }));

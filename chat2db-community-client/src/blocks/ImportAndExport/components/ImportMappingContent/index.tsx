@@ -124,6 +124,7 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [unmappedTarget, setUnmappedTarget] = useState(ImportUnmappedTarget.DEFAULT);
   const [executing, setExecuting] = useState(false);
+  const [activeSections, setActiveSections] = useState<string[]>(['mapping', 'preview']);
   const [csvOptions, setCsvOptions] = useState<ICsvOptions>(DEFAULT_CSV_OPTIONS);
   const selectedFileName = file.fileName || file.file?.name || file.filePath || '';
   const isCsv = inferImportFileFormat(selectedFileName) === ImportExportFileType.CSV;
@@ -348,6 +349,66 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
       values,
     })) || [];
 
+  const dataSectionItems = preview
+    ? [
+        {
+          key: 'mapping',
+          label: i18n('workspace.importExport.fieldMapping'),
+          children: (
+            <>
+              <div className={styles.mappingControls}>
+                {isCsv && (
+                  <Checkbox
+                    checked={csvOptions.emptyAsNull}
+                    onChange={(event) =>
+                      setCsvOptions((current) => ({ ...current, emptyAsNull: event.target.checked }))
+                    }
+                  >
+                    {i18n('workspace.importExport.emptyAsNull')}
+                  </Checkbox>
+                )}
+                <Select
+                  className={styles.unmappedTargetSelect}
+                  value={unmappedTarget}
+                  onChange={(v) => setUnmappedTarget(v)}
+                  options={[
+                    { value: ImportUnmappedTarget.DEFAULT, label: i18n('workspace.importExport.unmappedDefault') },
+                    { value: ImportUnmappedTarget.NULL, label: i18n('workspace.importExport.unmappedNull') },
+                  ]}
+                />
+              </div>
+              <Table
+                className={cx(styles.mappingTable, styles.scrollableTable)}
+                size="small"
+                rowKey="key"
+                columns={columns}
+                dataSource={mappingRows}
+                loading={loading}
+                pagination={false}
+                tableLayout="fixed"
+                scroll={{ y: 220 }}
+              />
+            </>
+          ),
+        },
+        {
+          key: 'preview',
+          label: i18n('workspace.importExport.dataPreview', preview.previewLimit),
+          children: (
+            <Table
+              className={styles.scrollableTable}
+              size="small"
+              rowKey="key"
+              columns={previewColumns}
+              dataSource={previewData}
+              pagination={false}
+              scroll={{ x: 'max-content', y: 190 }}
+            />
+          ),
+        },
+      ]
+    : [];
+
   const execute = () => {
     const duplicateMapping = Object.values(duplicateMappings)[0];
     if (duplicateMapping) {
@@ -403,13 +464,16 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
   return (
     <div className={styles.container}>
       {modalContextHolder}
-      {error && preview && <div className={styles.error}>{error}</div>}
-      {isCsv && (
-        <div className={styles.csvOptions}>
-          <div className={styles.advancedOptions}>
+      <div className={styles.scrollContent}>
+        {error && preview && <div className={styles.error}>{error}</div>}
+        {isCsv && (
+          <div className={styles.csvOptions}>
             <Collapse
+              className={styles.sections}
               ghost
               size="small"
+              activeKey={activeSections}
+              onChange={(keys) => setActiveSections(Array.isArray(keys) ? keys : [keys])}
               items={[
                 {
                   key: 'csvFormat',
@@ -641,79 +705,45 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
                     </div>
                   ),
                 },
+                ...dataSectionItems,
               ]}
             />
           </div>
-        </div>
-      )}
-      {!preview && (
-        <div className={styles.previewState} role={error ? undefined : 'status'}>
-          {error ? (
-            <div className={styles.previewError} role="alert">
-              <TriangleAlert size={24} />
-              <span>{error}</span>
-            </div>
-          ) : (
-            <Spin />
-          )}
-        </div>
-      )}
-      {preview && (
-        <>
-          <div className={styles.toolbar}>
-            <strong className={styles.mappingSectionTitle}>{i18n('workspace.importExport.fieldMapping')}</strong>
-            {isCsv && (
-              <Checkbox
-                checked={csvOptions.emptyAsNull}
-                onChange={(event) => setCsvOptions((current) => ({ ...current, emptyAsNull: event.target.checked }))}
-              >
-                {i18n('workspace.importExport.emptyAsNull')}
-              </Checkbox>
+        )}
+        {!preview && (
+          <div className={styles.previewState} role={error ? undefined : 'status'}>
+            {error ? (
+              <div className={styles.previewError} role="alert">
+                <TriangleAlert size={24} />
+                <span>{error}</span>
+              </div>
+            ) : (
+              <Spin />
             )}
-            <Select
-              className={styles.unmappedTargetSelect}
-              value={unmappedTarget}
-              onChange={(v) => setUnmappedTarget(v)}
-              options={[
-                { value: ImportUnmappedTarget.DEFAULT, label: i18n('workspace.importExport.unmappedDefault') },
-                { value: ImportUnmappedTarget.NULL, label: i18n('workspace.importExport.unmappedNull') },
-              ]}
-            />
           </div>
-          <Table
-            className={styles.mappingTable}
+        )}
+        {!isCsv && preview && (
+          <Collapse
+            className={styles.sections}
+            ghost
             size="small"
-            rowKey="key"
-            columns={columns}
-            dataSource={mappingRows}
-            loading={loading}
-            pagination={false}
-            tableLayout="fixed"
-            scroll={{ y: 220 }}
+            activeKey={activeSections}
+            onChange={(keys) => setActiveSections(Array.isArray(keys) ? keys : [keys])}
+            items={dataSectionItems}
           />
-          <strong className={styles.previewTitle}>
-            {i18n('workspace.importExport.dataPreview', preview.previewLimit)}
-          </strong>
-          <Table
-            className={styles.previewTable}
-            size="small"
-            rowKey="key"
-            columns={previewColumns}
-            dataSource={previewData}
-            pagination={false}
-            scroll={{ x: 'max-content', y: 380 }}
-          />
-          <div className={styles.actions}>
-            <Button
-              type="primary"
-              loading={executing}
-              disabled={loading || !fileId || loadedPreviewKey !== currentPreviewKey}
-              onClick={execute}
-            >
-              {i18n('common.button.execute')}
-            </Button>
-          </div>
-        </>
+        )}
+      </div>
+      {preview && (
+        <div className={styles.actions}>
+          <Button
+            type="primary"
+            loading={executing}
+            disabled={loading || !fileId || loadedPreviewKey !== currentPreviewKey}
+            onClick={execute}
+          >
+            {i18n('common.button.execute')}
+          </Button>
+        </div>
       )}
     </div>
   );
