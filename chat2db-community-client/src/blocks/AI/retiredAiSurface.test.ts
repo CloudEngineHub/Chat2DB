@@ -30,13 +30,6 @@ const retiredMarkers = [
   'AI_DATA_COLLECTION',
   'defaultDataCollectionList',
   'needAiDataCollections',
-  'selected' + 'Knowledge',
-  'Selected' + 'Knowledge',
-  'knowledge' + 'Mentions',
-  'Knowledge' + 'Mention',
-  'KNOWLEDGE_' + 'TERM',
-  'BUSINESS_' + 'LOGIC',
-  'SQL_' + 'TEMPLATE',
 ];
 
 const sourceFiles: string[] = [];
@@ -71,8 +64,6 @@ for (const sourceFile of sourceFiles) {
 }
 
 const aiSource = readFileSync('src/blocks/AI/index.tsx', 'utf8');
-const inputSource = readFileSync('src/blocks/AI/components/AIChatInput/index.tsx', 'utf8');
-const mentionSource = readFileSync('src/blocks/AI/components/AIAtMetion/index.tsx', 'utf8');
 const treeStoreSource = readFileSync('src/store/tree/index.tsx', 'utf8');
 const i18nSource = readdirSync('src/i18n')
   .filter((locale) => statSync(path.join('src/i18n', locale)).isDirectory())
@@ -82,25 +73,7 @@ const i18nSource = readdirSync('src/i18n')
       .map((file) => readFileSync(path.join('src/i18n', locale, file), 'utf8')),
   )
   .join('\n');
-const requestSource = readFileSync(
-  '../chat2db-community-server/chat2db-community-web/src/main/java/ai/chat2db/community/web/api/model/request/ai/ChatRequest.java',
-  'utf8',
-);
 assert.match(aiSource, /baseURL: '\/api\/v3\/ai\/chat\/stream'/);
-assert.match(aiSource, /contextReferences:/);
-assert.match(inputSource, /clientExtension\.contextMentions/);
-assert.match(inputSource, /normalizeMentionInput/);
-const contextRequestSource = inputSource.slice(
-  inputSource.indexOf('const fetchContextList'),
-  inputSource.indexOf('const handleSend'),
-);
-assert.doesNotMatch(contextRequestSource, /debounce/);
-assert.match(inputSource, /pageSize: CONTEXT_MENTION_PAGE_SIZE/);
-assert.match(inputSource, /loadMoreContext/);
-assert.match(mentionSource, /onScrollCapture/);
-assert.match(requestSource, /List<AiContextReferenceRequest> contextReferences/);
-assert.doesNotMatch(requestSource, /private String key/);
-assert.doesNotMatch(requestSource, /private String value/);
 assert.match(treeStoreSource, /import \{ clientRuntime \} from '@client-runtime';/);
 assert.doesNotMatch(i18nSource, /aiDataCollection|databaseOrDataCollection/);
 

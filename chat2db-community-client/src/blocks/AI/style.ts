@@ -379,35 +379,6 @@ export const useStyles = createStyles(({ css, token, prefixCls }) => {
       text-overflow: ellipsis;
     `,
 
-    userContextReferenceList: css`
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-      gap: 6px;
-      max-width: 100%;
-    `,
-
-    userContextReferenceItem: css`
-      display: inline-flex;
-      align-items: center;
-      gap: 2px;
-      max-width: 260px;
-      min-width: 0;
-      min-height: 26px;
-      padding: 3px 8px;
-      border: 1px solid transparent;
-      border-radius: 5px;
-      line-height: 18px;
-      font-size: 13px;
-      font-weight: 500;
-      color: ${token.colorInfoText};
-      border-color: ${token.colorInfoBorder};
-      background: ${token.colorInfoBg};
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    `,
-
     userBubble: css`
       max-width: 100%;
       white-space: pre-wrap;

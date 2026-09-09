@@ -24,7 +24,6 @@ import aiStreamService, {
   IChatMessage,
   IChatSession,
   IModelOptionItem,
-  IChatContextReference,
 } from '@/service/aiStream';
 import { IChatAttachment } from '@/service/aiAttachment';
 import { useAIStore } from '@/store/ai';
@@ -47,7 +46,6 @@ import { listAvailableModelOptions, resolveModelRequestPayload } from '@/service
 import { isDesktop } from '@/utils/env';
 import { usePermission } from '@/hooks/usePermission';
 import { clientRuntime } from '@client-runtime';
-import clientExtension from '@client-extension';
 import { buildWorkspaceObjectTabTitle } from '@/utils/workspaceObjectTabTitle';
 import type { IConnectionEnv } from '@/typings';
 import { resolveAIDataSourceContext } from './dataSourceContext';
@@ -332,7 +330,6 @@ interface IChatItem {
   role: ChatRole;
   content: string;
   attachments?: IChatAttachment[];
-  contextReferences?: IChatContextReference[];
   traceEntries?: ITraceEntry[];
 }
 
@@ -1421,7 +1418,6 @@ export default function AI({ variant = 'page', onTableClick, onPinSql, onSession
           role: m.role as ChatRole,
           content: m.content,
           attachments: m.attachments,
-          contextReferences: m.contextReferences,
           traceEntries: parseTraceEntries(m.reasoningContent),
         }));
         const latestInProgressSession = inProgressSessionRef.current;
@@ -1586,7 +1582,6 @@ export default function AI({ variant = 'page', onTableClick, onPinSql, onSession
             role: 'user' as const,
             content,
             attachments: params.attachments,
-            contextReferences: params.contextReferences,
           },
         ];
         messagesRef.current = next;
@@ -1637,7 +1632,6 @@ export default function AI({ variant = 'page', onTableClick, onPinSql, onSession
         databaseType: params.databaseType,
         tableName: params.tableName,
         questionType: params.questionType,
-        contextReferences: (params.contextReferences || []).map(({ provider, id, type }) => ({ provider, id, type })),
         attachments: params.attachments,
       });
 
@@ -1986,21 +1980,6 @@ export default function AI({ variant = 'page', onTableClick, onPinSql, onSession
                             {attachment.fileName}
                           </div>
                         ))}
-                      </div>
-                    ) : null}
-                    {round.user.contextReferences?.some((reference) => reference.label) ? (
-                      <div className={styles.userContextReferenceList}>
-                        {round.user.contextReferences
-                          .filter((reference) => reference.label)
-                          .map((reference) => (
-                            <span
-                              key={`${reference.provider}-${reference.type}-${reference.id}`}
-                              className={styles.userContextReferenceItem}
-                              title={reference.description || reference.label}
-                            >
-                              {clientExtension.renderContextReference?.(reference) || reference.label}
-                            </span>
-                          ))}
                       </div>
                     ) : null}
                     <div className={styles.userBubble}>{round.user.content}</div>

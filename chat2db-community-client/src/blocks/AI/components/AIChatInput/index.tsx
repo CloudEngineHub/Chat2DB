@@ -35,19 +35,10 @@ import aiAttachmentService, { IChatAttachment } from '@/service/aiAttachment';
 import { isDesktop } from '@/utils/env';
 import jcefApi from '@/jcef';
 import feedback from '@/utils/feedback';
-import type { IChatContextReference } from '@/service/aiStream';
-import clientExtension from '@client-extension';
-import type {
-  AiContextMentionCandidate,
-  AiContextMentionRequest,
-} from '@/client-extension/types';
 import {
   detectMentionTrigger,
-  filterUnselectedMentionCandidates,
-  normalizeMentionInput,
   reconcileSelectedMentions,
   replaceMentionTrigger,
-  shouldOpenMention,
   upsertSelectedMention,
   type MentionTrigger,
   type SelectedMention,
@@ -72,7 +63,6 @@ export interface SendParams {
   sql?: string;
 
   attachments?: IChatAttachment[];
-  contextReferences?: IChatContextReference[];
 }
 
 interface ChatInputProps {
@@ -108,35 +98,6 @@ export interface ChatInputPropsRef {
 const ATTACHMENT_ACCEPT = '.pdf,.doc,.docx,.md,.txt,.json,.csv,.xlsx,.xls';
 const ATTACHMENT_FILE_TYPES = ['pdf', 'doc', 'docx', 'md', 'txt', 'json', 'csv', 'xlsx', 'xls'];
 const ATTACHMENT_PARSE_MESSAGE_KEY = 'chat-attachment-parse';
-const CONTEXT_MENTION_PAGE_SIZE = 20;
-
-type ContextSearchRequest = Pick<AiContextMentionRequest, 'searchKey' | 'inputText'>;
-
-interface ContextSearchCursor {
-  contextInfo: IAICascaderData | null | undefined;
-  request: ContextSearchRequest;
-  requestSequence: number;
-  pageNo: number;
-  hasNextPage: boolean;
-}
-
-const toContextSuggestions = (candidates: readonly AiContextMentionCandidate[]): SuggestionItem[] =>
-  candidates.map((candidate) => ({
-    label: candidate.label,
-    value: `context:${candidate.provider}:${candidate.type}:${candidate.id}`,
-    kind: 'context',
-    contextReference: {
-      provider: candidate.provider,
-      id: candidate.id,
-      type: candidate.type,
-      label: candidate.label,
-      description: candidate.description,
-    },
-    icon: candidate.icon,
-    extra: candidate.extra,
-    preview: candidate.preview,
-  }));
-
 const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInputPropsRef>) => {
   const {
     className,
@@ -159,9 +120,6 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
   const [inputValue, setInputValue] = useState('');
   const [prefillQuestionType, setPrefillQuestionType] = useState<QuestionType>();
   const [tableList, setTableList] = useState<ITable[]>([]);
-  const [contextList, setContextList] = useState<SuggestionItem[]>([]);
-  const [contextHasNextPage, setContextHasNextPage] = useState(false);
-  const [contextLoadingMore, setContextLoadingMore] = useState(false);
   const [selectedMentions, setSelectedMentions] = useState<SelectedMention[]>([]);
   const [mentionTrigger, setMentionTrigger] = useState<MentionTrigger | null>(null);
   const [attachments, setAttachments] = useState<IChatAttachment[]>([]);
@@ -169,9 +127,7 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
   const textareaRef = useRef<TextAreaRef>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef<boolean>(false); // IME input method combination status
-  const contextRequestSequenceRef = useRef(0);
-  const contextSearchCursorRef = useRef<ContextSearchCursor | null>(null);
-  const contextLoadingSequenceRef = useRef<number | null>(null);
+  const tableRequestSequenceRef = useRef(0);
 
   // caches tables without search conditions
   const tableListWithoutSearchKey = useRef<ITable[]>([]);
@@ -241,15 +197,10 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
 
   useEffect(() => {
     tableListWithoutSearchKey.current = [];
-    contextRequestSequenceRef.current += 1;
+    tableRequestSequenceRef.current += 1;
     setSelectedMentions([]);
     setMentionTrigger(null);
     setTableList([]);
-    setContextList([]);
-    setContextHasNextPage(false);
-    contextSearchCursorRef.current = null;
-    contextLoadingSequenceRef.current = null;
-    setContextLoadingMore(false);
     if (cascaderDataMap[mainPageActiveTab]) {
       fetchTableList(cascaderDataMap[mainPageActiveTab], '');
     }
@@ -258,7 +209,7 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
   const fetchTableList = useRef(
     debounce(async (_contextInfo: IAICascaderData, searchKey: string, requestSequence?: number) => {
       if (!_contextInfo) return;
-      if (requestSequence !== undefined && requestSequence !== contextRequestSequenceRef.current) return;
+      if (requestSequence !== undefined && requestSequence !== tableRequestSequenceRef.current) return;
       if ('dataSourceId' in _contextInfo && _contextInfo?.dataSourceId) {
         if (!searchKey && tableListWithoutSearchKey.current.length) {
           setTableList(tableListWithoutSearchKey.current);
@@ -284,7 +235,7 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
             searchKey,
           });
         } catch (error) {
-          if (requestSequence !== undefined && requestSequence !== contextRequestSequenceRef.current) return;
+          if (requestSequence !== undefined && requestSequence !== tableRequestSequenceRef.current) return;
           const requestError = error as { errorCode?: string };
           if (
             requestError.errorCode === 'QUERY_DATASOURCE_ERROR' ||
@@ -297,7 +248,7 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
           return;
         }
 
-        if (requestSequence !== undefined && requestSequence !== contextRequestSequenceRef.current) return;
+        if (requestSequence !== undefined && requestSequence !== tableRequestSequenceRef.current) return;
 
         const atTableList =
           res.data?.map((s) => ({
@@ -325,76 +276,6 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
   useEffect(() => {
     return () => fetchTableList.cancel();
   }, []);
-
-  const requestContextPage = (
-    contextInfo: IAICascaderData | null | undefined,
-    request: ContextSearchRequest,
-    pageNo: number,
-  ) => {
-    if (!clientExtension.contextMentions) {
-      return null;
-    }
-    const dataSourceId = contextInfo && 'dataSourceId' in contextInfo ? contextInfo.dataSourceId : undefined;
-    const databaseName = contextInfo && 'databaseName' in contextInfo ? contextInfo.databaseName : undefined;
-    const schemaName = contextInfo && 'schemaName' in contextInfo ? contextInfo.schemaName : undefined;
-    return clientExtension.contextMentions({
-      ...request,
-      dataSourceId,
-      databaseName,
-      schemaName,
-      pageNo,
-      pageSize: CONTEXT_MENTION_PAGE_SIZE,
-    });
-  };
-
-  const fetchContextList = async (
-    contextInfo: IAICascaderData | null | undefined,
-    request: ContextSearchRequest,
-    requestSequence: number,
-    onResolved: (hasCandidates: boolean) => void,
-  ) => {
-    const response = requestContextPage(contextInfo, request, 1);
-    if (!response) {
-      setContextList([]);
-      setContextHasNextPage(false);
-      onResolved(false);
-      return;
-    }
-    try {
-      const page = await response;
-      if (requestSequence !== contextRequestSequenceRef.current) return;
-      const suggestions = toContextSuggestions(page.data || []);
-      const hasUnselectedCandidates = filterUnselectedMentionCandidates(suggestions, selectedMentions).length > 0;
-      const hasNextPage = Boolean(page.hasNextPage);
-      setContextList(suggestions);
-      setContextHasNextPage(hasNextPage);
-      contextSearchCursorRef.current = {
-        contextInfo,
-        request,
-        requestSequence,
-        pageNo: page.pageNo || 1,
-        hasNextPage,
-      };
-      window.setTimeout(() => {
-        if (requestSequence === contextRequestSequenceRef.current) {
-          onResolved(hasUnselectedCandidates);
-        }
-      }, 0);
-    } catch {
-      if (requestSequence !== contextRequestSequenceRef.current) return;
-      setContextList([]);
-      setContextHasNextPage(false);
-      contextSearchCursorRef.current = null;
-      onResolved(false);
-    }
-  };
-
-  useEffect(
-    () => () => {
-      contextRequestSequenceRef.current += 1;
-    },
-    [],
-  );
 
   const handleSend = async (params?: SendParams) => {
     if (loading || attachmentLoading) return;
@@ -425,7 +306,7 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
 
     const finalAttachments = params?.attachments ?? attachments;
     const rawInput = params?.input ?? inputValue;
-    const trimmedInput = normalizeMentionInput(rawInput || '', selectedMentions).trim();
+    const trimmedInput = (rawInput || '').trim();
     const finalInput =
       trimmedInput ||
       (finalAttachments.length
@@ -455,11 +336,7 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
       source,
       model: useAIStore.getState().selectedModel?.value,
       tableList: selectedMentions
-        .filter((mention) => mention.kind === 'table')
         .map((mention) => ({ tableName: mention.tableName, tableType: mention.tableType })) as any,
-      contextReferences: selectedMentions
-        .filter((mention) => mention.kind === 'context' && mention.contextReference)
-        .map((mention) => mention.contextReference!),
       attachments: finalAttachments,
     };
 
@@ -626,12 +503,7 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
     setAttachments((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
   };
 
-  const removeSelectedMention = (value: string) => {
-    setSelectedMentions((previous) => previous.filter((mention) => mention.value !== value));
-  };
-
   const getMentionList = (info?: MentionTrigger) => {
-    const availableContext = filterUnselectedMentionCandidates(contextList, selectedMentions);
     const tables: SuggestionItem[] = (tableList || []).map((table) => ({
       label: table.name,
       value: `table:${table.tableType}:${table.name}`,
@@ -640,46 +512,8 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
       tableType: table.tableType,
       extra: table.tableType === 'VIEW' ? '视图' : '表',
     }));
-    if (info?.mode === 'natural') return availableContext;
-    const candidates = [...tables, ...availableContext];
-    if (!info?.query) return candidates;
-    return candidates.filter((item) => item.label.toLowerCase().includes(info.query.toLowerCase()));
-  };
-
-  const loadMoreContext = async () => {
-    const cursor = contextSearchCursorRef.current;
-    if (!cursor?.hasNextPage || contextLoadingSequenceRef.current === cursor.requestSequence) {
-      return;
-    }
-    contextLoadingSequenceRef.current = cursor.requestSequence;
-    setContextLoadingMore(true);
-    try {
-      const nextPageNo = cursor.pageNo + 1;
-      const response = requestContextPage(cursor.contextInfo, cursor.request, nextPageNo);
-      if (!response) return;
-      const page = await response;
-      if (cursor.requestSequence !== contextRequestSequenceRef.current) return;
-      const suggestions = toContextSuggestions(page.data || []);
-      setContextList((previous) => {
-        const merged = new Map(previous.map((item) => [item.value, item]));
-        suggestions.forEach((item) => merged.set(item.value, item));
-        return [...merged.values()];
-      });
-      const hasNextPage = Boolean(page.hasNextPage);
-      setContextHasNextPage(hasNextPage);
-      contextSearchCursorRef.current = {
-        ...cursor,
-        pageNo: page.pageNo || nextPageNo,
-        hasNextPage,
-      };
-    } catch {
-      // Keep the current page and allow another scroll attempt.
-    } finally {
-      if (contextLoadingSequenceRef.current === cursor.requestSequence) {
-        contextLoadingSequenceRef.current = null;
-        setContextLoadingMore(false);
-      }
-    }
+    if (!info?.query) return tables;
+    return tables.filter((item) => item.label.toLowerCase().includes(info.query.toLowerCase()));
   };
 
   const updateMentionSuggestions = (
@@ -689,52 +523,19 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
   ) => {
     const nextTrigger = detectMentionTrigger(value, cursor);
     if (!nextTrigger) {
-      contextRequestSequenceRef.current += 1;
+      tableRequestSequenceRef.current += 1;
       setMentionTrigger(null);
-      setContextList([]);
-      setContextHasNextPage(false);
-      contextSearchCursorRef.current = null;
       onTrigger(false);
       return;
     }
 
-    const requestSequence = contextRequestSequenceRef.current + 1;
-    contextRequestSequenceRef.current = requestSequence;
-    onTrigger(false);
-    setContextList([]);
+    const requestSequence = tableRequestSequenceRef.current + 1;
+    tableRequestSequenceRef.current = requestSequence;
     setTableList([]);
-    contextSearchCursorRef.current = null;
-    contextLoadingSequenceRef.current = null;
-    setContextHasNextPage(false);
-    setContextLoadingMore(false);
     setMentionTrigger(nextTrigger);
     const contextInfo = cascaderDataMap[mainPageActiveTab];
-
-    if (nextTrigger.mode === 'explicit') {
-      fetchTableList(contextInfo, nextTrigger.query, requestSequence);
-      onTrigger(nextTrigger);
-    } else if (!clientExtension.contextMentions) {
-      setMentionTrigger(null);
-      onTrigger(false);
-      return;
-    }
-
-    fetchContextList(
-      contextInfo,
-      nextTrigger.mode === 'explicit'
-        ? { searchKey: nextTrigger.query || undefined }
-        : { inputText: nextTrigger.inputText.slice(-200) },
-      requestSequence,
-      (hasCandidates) => {
-        if (requestSequence !== contextRequestSequenceRef.current) return;
-        if (shouldOpenMention(nextTrigger, hasCandidates)) {
-          onTrigger(nextTrigger);
-        } else {
-          setMentionTrigger(null);
-          onTrigger(false);
-        }
-      },
-    );
+    fetchTableList(contextInfo, nextTrigger.query, requestSequence);
+    onTrigger(nextTrigger);
   };
 
   const isSameContextInfo = (prev: IAICascaderData, next: IAICascaderData) => {
@@ -752,24 +553,16 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
     );
   };
 
-  const renderSelectedContext = (mention: SelectedMention) =>
-    mention.contextReference
-      ? clientExtension.renderContextReference?.(mention.contextReference) || mention.label
-      : mention.label;
-
   return (
     <AIAtMetion<MentionTrigger>
       className={className}
       items={getMentionList}
-      hasMore={contextHasNextPage}
-      loadingMore={contextLoadingMore}
-      onLoadMore={loadMoreContext}
       onSelect={(item) => {
         const textarea = textareaRef.current?.resizableTextArea?.textArea;
         const cursor = textarea?.selectionStart ?? inputValue.length;
         const activeTrigger = mentionTrigger || detectMentionTrigger(inputValue, cursor);
         const replacement = activeTrigger
-          ? replaceMentionTrigger(inputValue, cursor, activeTrigger, item.label)
+          ? replaceMentionTrigger(inputValue, activeTrigger, item.label)
           : { value: `${inputValue}${item.label}`, cursor: inputValue.length + item.label.length };
 
         setInputValue(replacement.value);
@@ -778,17 +571,13 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
             value: item.value,
             label: item.label,
             kind: item.kind,
-            tableName: item.tableName,
+            tableName: item.tableName!,
             tableType: item.tableType,
-            contextReference: item.contextReference,
           };
           return upsertSelectedMention(previous, nextMention);
         });
-        contextRequestSequenceRef.current += 1;
+        tableRequestSequenceRef.current += 1;
         setMentionTrigger(null);
-        setContextList([]);
-        setContextHasNextPage(false);
-        contextSearchCursorRef.current = null;
         window.setTimeout(() => {
           textarea?.focus();
           textarea?.setSelectionRange(replacement.cursor, replacement.cursor);
@@ -821,25 +610,6 @@ const AIChatInput = forwardRef((props: ChatInputProps, ref: ForwardedRef<ChatInp
                   </button>
                 </div>
               ))}
-            </div>
-          )}
-          {!!selectedMentions.some((mention) => mention.kind === 'context') && (
-            <div className={styles.contextReferenceList}>
-              {selectedMentions
-                .filter((mention) => mention.kind === 'context')
-                .map((mention) => (
-                  <button
-                    key={mention.value}
-                    type="button"
-                    className={styles.contextReferenceItem}
-                    title={mention.contextReference?.description}
-                    aria-label={`取消选择${mention.label}`}
-                    onClick={() => removeSelectedMention(mention.value)}
-                  >
-                    <span>{renderSelectedContext(mention)}</span>
-                    <CloseOutlined className={styles.contextReferenceRemoveIcon} />
-                  </button>
-                ))}
             </div>
           )}
           <Input.TextArea

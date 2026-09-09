@@ -1,7 +1,6 @@
 package ai.chat2db.community.domain.core.impl.ai;
 
 import ai.chat2db.community.domain.api.model.ai.AiChatSession;
-import ai.chat2db.community.domain.api.model.ai.AiContextReferenceSnapshot;
 import ai.chat2db.community.domain.api.model.request.ai.AiChatMessageAddRequest;
 import ai.chat2db.community.tools.exception.BusinessException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -101,33 +100,6 @@ class AiChatHistoryServiceImplTest {
 
         assertEquals("ai.chat.history.sessionNotOwned", exception.getCode());
         assertEquals("owner title", service.listSessions(OWNER_ID).get(0).getTitle());
-    }
-
-    @Test
-    void contextReferencesSurviveHistoryPersistenceAndReload() {
-        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
-        AiChatHistoryServiceImpl service = new AiChatHistoryServiceImpl(objectMapper, tempDirectory);
-        AiChatSession session = service.createSession(OWNER_ID, "context session");
-        AiChatMessageAddRequest request = addRequest(session.getId(), OWNER_ID, "summarize the selected context");
-        AiContextReferenceSnapshot reference = new AiContextReferenceSnapshot();
-        reference.setProvider("catalog");
-        reference.setId("186");
-        reference.setType("term");
-        reference.setLabel("product family");
-        reference.setDescription("selected product family");
-        request.setContextReferences(List.of(reference));
-
-        service.addMessage(request);
-        AiChatHistoryServiceImpl reloadedService = new AiChatHistoryServiceImpl(objectMapper, tempDirectory);
-
-        assertEquals(1, reloadedService.getMessages(session.getId(), OWNER_ID).size());
-        AiContextReferenceSnapshot restored = reloadedService.getMessages(session.getId(), OWNER_ID)
-                .get(0).getContextReferences().get(0);
-        assertEquals("catalog", restored.getProvider());
-        assertEquals("186", restored.getId());
-        assertEquals("term", restored.getType());
-        assertEquals("product family", restored.getLabel());
-        assertEquals("selected product family", restored.getDescription());
     }
 
     @Test

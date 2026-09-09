@@ -23,14 +23,6 @@ export interface IChatSession {
   gmtModified: string;
 }
 
-export interface IChatContextReference {
-  provider: string;
-  id: string;
-  type: string;
-  label: string;
-  description?: string;
-}
-
 export interface IChatMessage {
   id: string;
   sessionId: string;
@@ -38,7 +30,6 @@ export interface IChatMessage {
   content: string;
   reasoningContent?: string;
   attachments?: IChatAttachment[];
-  contextReferences?: IChatContextReference[];
   gmtCreate: string;
 }
 

@@ -58,38 +58,6 @@ export interface ResourceOperationRequest {
 
 export type ResourceOperationCapabilities = Readonly<Record<ResourceOperation, boolean>>;
 
-export interface AiContextReference {
-  provider: string;
-  id: string;
-  type: string;
-  label: string;
-  description?: string;
-}
-
-export interface AiContextMentionCandidate extends AiContextReference {
-  icon?: ReactNode;
-  extra?: ReactNode;
-  preview?: ReactNode;
-}
-
-export interface AiContextMentionRequest {
-  searchKey?: string;
-  inputText?: string;
-  dataSourceId?: number;
-  databaseName?: string;
-  schemaName?: string;
-  pageNo?: number;
-  pageSize?: number;
-}
-
-export interface AiContextMentionPage {
-  data: readonly AiContextMentionCandidate[];
-  pageNo: number;
-  pageSize: number;
-  total: number;
-  hasNextPage: boolean;
-}
-
 export interface TableMetadataSearchRequest {
   dataSourceId: number;
   searchKey: string;
@@ -137,8 +105,6 @@ export interface ClientExtension {
   resourceOperations?: (
     request: ResourceOperationRequest,
   ) => Promise<ResourceOperationCapabilities>;
-  contextMentions?: (request: AiContextMentionRequest) => Promise<AiContextMentionPage>;
-  renderContextReference?: (reference: AiContextReference) => ReactNode;
   tableMetadataSearch?: (request: TableMetadataSearchRequest) => Promise<readonly TableMetadataSearchResult[]>;
   dashboardActions?: (context: DashboardActionContext) => ReactNode;
   openPermissionApplication?: (request: PermissionApplicationRequest) => void;

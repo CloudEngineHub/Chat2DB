@@ -1,7 +1,6 @@
 package ai.chat2db.community.domain.api.model.request.ai;
 
 import ai.chat2db.community.domain.api.model.ai.ChatAttachment;
-import ai.chat2db.community.domain.api.model.ai.AiContextReferenceSnapshot;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -26,5 +25,4 @@ public class AiChatMessageAddRequest {
 
     private List<ChatAttachment> attachments;
 
-    private List<AiContextReferenceSnapshot> contextReferences;
 }

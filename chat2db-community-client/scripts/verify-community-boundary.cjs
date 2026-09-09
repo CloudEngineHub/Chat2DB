@@ -77,32 +77,6 @@ const forbiddenMarkers = [
   'Pro ' + 'Member',
 ];
 
-const forbiddenAiMarkers = [
-  'selected' + 'Knowledge',
-  'Selected' + 'Knowledge',
-  'AiSelected' + 'Knowledge',
-  'knowledge' + 'Mentions',
-  'Knowledge' + 'Mention',
-  'KNOWLEDGE_' + 'TERM',
-  'BUSINESS_' + 'LOGIC',
-  'SQL_' + 'TEMPLATE',
-];
-
-const isAiSurface = (filePath) => {
-  const normalized = filePath.split(path.sep).join('/');
-  return [
-    '/src/blocks/AI/',
-    '/src/service/aiStream.ts',
-    '/src/client-extension/',
-    '/model/ai/',
-    '/request/ai/',
-    '/service/ai/',
-    '/impl/ai/',
-    '/adapter/ai/',
-    '/converter/ai/',
-  ].some((segment) => normalized.includes(segment));
-};
-
 const productionFiles = [];
 const pending = [sourceRoot];
 while (pending.length) {
@@ -140,13 +114,6 @@ for (const filePath of [...productionFiles, path.join(root, '.umirc.ts')]) {
   for (const marker of forbiddenMarkers) {
     if (source.includes(marker)) {
       throw new Error(`Community boundary marker ${marker} found in ${path.relative(root, filePath)}`);
-    }
-  }
-  if (isAiSurface(filePath)) {
-    for (const marker of forbiddenAiMarkers) {
-      if (source.includes(marker)) {
-        throw new Error(`Community AI boundary marker ${marker} found in ${path.relative(root, filePath)}`);
-      }
     }
   }
 }

@@ -23,7 +23,5 @@ public class AiChatMessage {
 
     private List<ChatAttachment> attachments = new ArrayList<>();
 
-    private List<AiContextReferenceSnapshot> contextReferences = new ArrayList<>();
-
     private LocalDateTime gmtCreate;
 }

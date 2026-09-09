@@ -34,33 +34,6 @@ export const useStyles = createStyles(({ css, token }) => {
       }
     `,
     content: css``,
-    dropdownLayout: css`
-      display: flex;
-      align-items: stretch;
-      max-width: min(680px, calc(100vw - 32px));
-      overflow: hidden;
-    `,
-    menuPane: css`
-      position: relative;
-      min-width: 280px;
-      max-width: 340px;
-      overflow: hidden;
-    `,
-    loadingMore: css`
-      position: absolute;
-      bottom: 8px;
-      left: 50%;
-      z-index: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 28px;
-      height: 28px;
-      border: 1px solid ${token.colorBorderSecondary};
-      border-radius: 4px;
-      background: ${token.colorBgElevated};
-      transform: translateX(-50%);
-    `,
     optionRow: css`
       display: flex;
       align-items: center;
@@ -89,15 +62,6 @@ export const useStyles = createStyles(({ css, token }) => {
       width: 36px;
       color: ${token.colorTextDescription};
       font-size: 11px;
-    `,
-    previewPane: css`
-      width: 320px;
-      min-width: 260px;
-      max-height: 280px;
-      padding: 14px 16px;
-      overflow: auto;
-      border-inline-start: 1px solid ${token.colorBorderSecondary};
-      background: ${token.colorBgElevated};
     `,
   };
 });

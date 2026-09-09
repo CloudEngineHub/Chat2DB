@@ -1,7 +1,6 @@
 package ai.chat2db.community.web.api.model.response.ai;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
-import ai.chat2db.community.domain.api.model.ai.AiContextReferenceSnapshot;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -22,8 +21,6 @@ public class AiChatMessageResponse {
     private String reasoningContent;
 
     private List<ai.chat2db.community.domain.api.model.ai.ChatAttachment> attachments = new ArrayList<>();
-
-    private List<AiContextReferenceSnapshot> contextReferences = new ArrayList<>();
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime gmtCreate;

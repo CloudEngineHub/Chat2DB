@@ -12,8 +12,6 @@ assert.equal(clientExtension.mainPage.slots, undefined);
 assert.equal(clientExtension.mainPage.hiddenCoreActions, undefined);
 assert.equal(clientExtension.settings, undefined);
 assert.equal(clientExtension.resourceOperations, undefined);
-assert.equal(clientExtension.contextMentions, undefined);
-assert.equal(clientExtension.renderContextReference, undefined);
 assert.equal(clientExtension.tableMetadataSearch, undefined);
 assert.deepEqual(clientExtension.requestPolicy, {
   permissionDeniedInteraction: 'prompt-application',

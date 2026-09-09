@@ -2,12 +2,10 @@ package ai.chat2db.community.web.api.model.request.ai;
 
 import ai.chat2db.community.domain.api.enums.ai.AiProviderEnum;
 import ai.chat2db.community.domain.api.model.ai.ChatAttachment;
-import ai.chat2db.community.domain.api.model.request.ai.AiContextReferenceRequest;
 import ai.chat2db.community.tools.console.ConsoleResult;
 import com.alibaba.fastjson2.annotation.JSONField;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.util.ArrayList;
@@ -28,10 +26,6 @@ public class ChatRequest {
 
     @Valid
     private List<ChatAttachment> attachments = new ArrayList<>();
-
-    @Valid
-    @Size(max = 50)
-    private List<AiContextReferenceRequest> contextReferences = new ArrayList<>();
 
 
     private Long dataSourceId;
