@@ -20,16 +20,23 @@ public class CSVImporter extends BaseExcelImporter implements IImportStrategy {
         CsvOptions options = (spec.getCsvOptions() == null ? CsvOptions.defaults() : spec.getCsvOptions()).validate();
         NoModelDataListener listener = new NoModelDataListener(spec, context, columns);
         boolean[] initialized = {false};
+        int[] sourceRow = {0};
         new CsvParser(options).forEachRow(Path.of(spec.getSourceFile()), row -> {
+            int rowNumber = ++sourceRow[0];
+            if (Boolean.TRUE.equals(options.getHasHeader()) && rowNumber == options.getHeaderRow()) {
+                initialized[0] = true;
+                listener.acceptHead(row);
+                return;
+            }
+            if (rowNumber < options.getDataStartRow()
+                    || options.getDataEndRow() != null && rowNumber > options.getDataEndRow()) {
+                return;
+            }
             if (!initialized[0]) {
                 initialized[0] = true;
-                if (Boolean.TRUE.equals(options.getHasHeader())) {
-                    listener.acceptHead(row);
-                    return;
-                }
                 listener.acceptHead(syntheticHeader(Math.max(row.size(), mappedSourceColumnCount(spec))));
             }
-            listener.acceptRow(row);
+            listener.acceptRow(row, rowNumber);
         }, context::checkCancelled);
         if (initialized[0]) {
             listener.finish();

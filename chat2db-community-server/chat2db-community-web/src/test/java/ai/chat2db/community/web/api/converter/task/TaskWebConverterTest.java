@@ -121,6 +121,14 @@ class TaskWebConverterTest {
                 .newline("CRLF")
                 .hasHeader(true)
                 .emptyAsNull(true)
+                .headerRow(3)
+                .dataStartRow(4)
+                .dataEndRow(20)
+                .dateOrder("DMY")
+                .dateTimeOrder("TIME_TIMEZONE_DATE")
+                .dateDelimiter("/")
+                .timeDelimiter(":")
+                .decimalSymbol(",")
                 .build();
         TaskImportRequest importRequest = importRequest(TaskType.DATA_FILE_IMPORT.name());
         importRequest.setCsvOptions(csvOptions);
@@ -133,6 +141,11 @@ class TaskWebConverterTest {
         assertEquals("AUTO", importSpec.getCsvOptions().getEncoding());
         assertEquals("\\", importSpec.getCsvOptions().getEscape());
         assertEquals("CRLF", exportSpec.getCsvOptions().getNewline());
+        assertEquals(3, importSpec.getCsvOptions().getHeaderRow());
+        assertEquals(20, importSpec.getCsvOptions().getDataEndRow());
+        assertEquals("DMY", importSpec.getCsvOptions().getDateOrder());
+        assertEquals("TIME_TIMEZONE_DATE", importSpec.getCsvOptions().getDateTimeOrder());
+        assertEquals(",", importSpec.getCsvOptions().getDecimalSymbol());
     }
 
     @Test

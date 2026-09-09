@@ -192,6 +192,23 @@ class DbImportPreviewServiceImplTest {
         assertEquals(List.of("Alice", "olá"), preview.getPreviewData().get(0));
     }
 
+    @Test
+    void previewUsesConfiguredHeaderAndDataRowRange(@TempDir Path directory) throws Exception {
+        Path path = directory.resolve("row-range.csv");
+        Files.writeString(path, "Generated report\nName,Note\nAlice,first\nBob,second\nFooter,ignored\n");
+        CsvOptions options = CsvOptions.builder()
+                .headerRow(2)
+                .dataStartRow(3)
+                .dataEndRow(4)
+                .build();
+
+        ImportPreview preview = new DbImportPreviewServiceImpl()
+                .preview(DATA_SOURCE_ID, DATABASE, null, "orders", path.toFile(), options);
+
+        assertEquals(List.of("Name", "Note"), preview.getSourceColumns());
+        assertEquals(List.of(List.of("Alice", "first"), List.of("Bob", "second")), preview.getPreviewData());
+    }
+
     private File csv(Path directory) throws Exception {
         Path path = directory.resolve("orders.csv");
         Files.writeString(path, "Name\nAlice\n", StandardCharsets.UTF_8);

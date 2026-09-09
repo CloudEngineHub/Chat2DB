@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox, Divider, Input, Modal, Select, Spin, Table, Tooltip } from 'antd';
+import { Button, Checkbox, Collapse, Divider, Input, InputNumber, Modal, Select, Spin, Table, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { TriangleAlert } from 'lucide-react';
 import {
@@ -24,6 +24,7 @@ import LocalFileEncodingSelect from '@/components/LocalFileEncodingSelect';
 import {
   buildCsvOptionsForTaskSubmit,
   DEFAULT_CSV_OPTIONS,
+  getCsvDateTimeExamples,
   inferImportFileFormat,
 } from '../../utils/csvOptions';
 
@@ -42,6 +43,8 @@ interface CharacterOptionProps {
   options: { value: string; label: string }[];
   fieldClassName: string;
   customInputClassName: string;
+  allowCustom?: boolean;
+  disabled?: boolean;
   onChange: (value: string) => void;
 }
 
@@ -51,6 +54,8 @@ const CharacterOption = ({
   options,
   fieldClassName,
   customInputClassName,
+  allowCustom = true,
+  disabled,
   onChange,
 }: CharacterOptionProps) => {
   const preset = options.some((option) => option.value === value);
@@ -58,41 +63,48 @@ const CharacterOption = ({
   useEffect(() => {
     setCustomValue(preset ? '' : value);
   }, [preset, value]);
-  const selectOptions = preset
-    ? options
-    : [...options, { value, label: i18n('workspace.importExport.customCharacterValue', value) }];
+  const selectOptions =
+    preset || !allowCustom
+      ? options
+      : [...options, { value, label: i18n('workspace.importExport.customCharacterValue', value) }];
 
   return (
-    <label className={fieldClassName}>
+    <div className={fieldClassName}>
       <span>{label}</span>
       <Select
         value={value}
         options={selectOptions}
+        disabled={disabled}
         onChange={onChange}
-        dropdownRender={(menu) => (
-          <>
-            {menu}
-            <Divider style={{ margin: '4px 0' }} />
-            <div className={customInputClassName} onMouseDown={(event) => event.stopPropagation()}>
-              <Input
-                aria-label={i18n('workspace.importExport.customCharacter')}
-                maxLength={1}
-                placeholder={i18n('workspace.importExport.customCharacter')}
-                value={customValue}
-                onKeyDown={(event) => event.stopPropagation()}
-                onChange={(event) => {
-                  const nextValue = event.target.value;
-                  setCustomValue(nextValue);
-                  if (nextValue) {
-                    onChange(nextValue);
-                  }
-                }}
-              />
-            </div>
-          </>
-        )}
+        dropdownRender={
+          allowCustom
+            ? (menu) => (
+                <>
+                  {menu}
+                  <Divider style={{ margin: '4px 0' }} />
+                  <div className={customInputClassName} onMouseDown={(event) => event.stopPropagation()}>
+                    <Input
+                      aria-label={i18n('workspace.importExport.customCharacter')}
+                      maxLength={1}
+                      placeholder={i18n('workspace.importExport.customCharacter')}
+                      value={customValue}
+                      disabled={disabled}
+                      onKeyDown={(event) => event.stopPropagation()}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        setCustomValue(nextValue);
+                        if (nextValue) {
+                          onChange(nextValue);
+                        }
+                      }}
+                    />
+                  </div>
+                </>
+              )
+            : undefined
+        }
       />
-    </label>
+    </div>
   );
 };
 
@@ -394,76 +406,262 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
       {error && preview && <div className={styles.error}>{error}</div>}
       {isCsv && (
         <div className={styles.csvOptions}>
-          <strong className={styles.sectionTitle}>{i18n('workspace.importExport.csvOptions')}</strong>
-          <label className={styles.csvOptionField}>
-            <span>{i18n('workspace.importExport.encoding')}</span>
-            <LocalFileEncodingSelect
-              className={styles.fullWidthControl}
-              charset={csvOptions.encoding === 'AUTO' ? undefined : csvOptions.encoding}
-              disabled={executing}
-              size="middle"
-              variant="outlined"
-              onEncodingChange={async (encoding) => {
-                setCsvOptions((current) => ({ ...current, encoding: encoding || 'AUTO' }));
-              }}
+          <div className={styles.advancedOptions}>
+            <Collapse
+              ghost
+              size="small"
+              items={[
+                {
+                  key: 'csvFormat',
+                  label: i18n('workspace.importExport.csvFormat'),
+                  children: (
+                    <div className={styles.csvFormatOptions}>
+                      <div className={styles.csvOptionField}>
+                        <span>{i18n('workspace.importExport.encoding')}</span>
+                        <LocalFileEncodingSelect
+                          className={styles.fullWidthControl}
+                          charset={csvOptions.encoding === 'AUTO' ? undefined : csvOptions.encoding}
+                          disabled={executing}
+                          size="middle"
+                          variant="outlined"
+                          onEncodingChange={async (encoding) => {
+                            setCsvOptions((current) => ({ ...current, encoding: encoding || 'AUTO' }));
+                          }}
+                        />
+                      </div>
+                      <CharacterOption
+                        label={i18n('workspace.importExport.delimiter')}
+                        value={csvOptions.delimiter}
+                        fieldClassName={styles.csvOptionField}
+                        customInputClassName={styles.customCharacterInput}
+                        options={[
+                          { value: ',', label: i18n('workspace.importExport.delimiterComma') },
+                          { value: ';', label: i18n('workspace.importExport.delimiterSemicolon') },
+                          { value: '\t', label: i18n('workspace.importExport.delimiterTab') },
+                          { value: '|', label: i18n('workspace.importExport.delimiterPipe') },
+                        ]}
+                        onChange={(delimiter) => setCsvOptions((current) => ({ ...current, delimiter }))}
+                      />
+                      <CharacterOption
+                        label={i18n('workspace.importExport.textQualifier')}
+                        value={csvOptions.quote}
+                        fieldClassName={styles.csvOptionField}
+                        customInputClassName={styles.customCharacterInput}
+                        options={[
+                          { value: '"', label: i18n('workspace.importExport.quoteDouble') },
+                          { value: "'", label: i18n('workspace.importExport.quoteSingle') },
+                          { value: '`', label: i18n('workspace.importExport.quoteBacktick') },
+                          { value: '~', label: i18n('workspace.importExport.quoteTilde') },
+                        ]}
+                        onChange={(quote) =>
+                          setCsvOptions((current) => ({
+                            ...current,
+                            quote,
+                            escape: current.escape === current.quote ? quote : current.escape,
+                          }))
+                        }
+                      />
+                      <CharacterOption
+                        label={i18n('workspace.importExport.escapeMethod')}
+                        value={csvOptions.escape}
+                        fieldClassName={styles.csvOptionField}
+                        customInputClassName={styles.customCharacterInput}
+                        options={[
+                          { value: csvOptions.quote, label: i18n('workspace.importExport.escapeRepeatedQualifier') },
+                          { value: '\\', label: i18n('workspace.importExport.escapeBackslash') },
+                        ]}
+                        onChange={(escape) => setCsvOptions((current) => ({ ...current, escape }))}
+                      />
+                    </div>
+                  ),
+                },
+                {
+                  key: 'sourceRows',
+                  label: i18n('workspace.importExport.sourceRows'),
+                  children: (
+                    <div className={styles.sourceRowOptions}>
+                      <Checkbox
+                        className={styles.sourceRowHasHeader}
+                        checked={csvOptions.hasHeader}
+                        onChange={(event) =>
+                          setCsvOptions((current) => ({
+                            ...current,
+                            hasHeader: event.target.checked,
+                            dataStartRow: event.target.checked
+                              ? Math.max(current.dataStartRow, current.headerRow + 1)
+                              : 1,
+                            dataEndRow:
+                              event.target.checked && current.dataEndRow && current.dataEndRow < current.headerRow + 1
+                                ? current.headerRow + 1
+                                : current.dataEndRow,
+                          }))
+                        }
+                      >
+                        {i18n('workspace.importExport.hasHeader')}
+                      </Checkbox>
+                      <div className={styles.csvOptionField}>
+                        <span>{i18n('workspace.importExport.headerRow')}</span>
+                        <InputNumber
+                          min={1}
+                          precision={0}
+                          disabled={!csvOptions.hasHeader}
+                          value={csvOptions.headerRow}
+                          onChange={(value) => {
+                            if (value !== null) {
+                              setCsvOptions((current) => ({
+                                ...current,
+                                headerRow: value,
+                                dataStartRow: Math.max(current.dataStartRow, value + 1),
+                                dataEndRow:
+                                  current.dataEndRow && current.dataEndRow < value + 1 ? value + 1 : current.dataEndRow,
+                              }));
+                            }
+                          }}
+                        />
+                      </div>
+                      <label className={styles.csvOptionField}>
+                        <span>{i18n('workspace.importExport.dataStartRow')}</span>
+                        <InputNumber
+                          min={csvOptions.hasHeader ? csvOptions.headerRow + 1 : 1}
+                          precision={0}
+                          value={csvOptions.dataStartRow}
+                          onChange={(value) =>
+                            value &&
+                            setCsvOptions((current) => ({
+                              ...current,
+                              dataStartRow: value,
+                              dataEndRow: current.dataEndRow && current.dataEndRow < value ? value : current.dataEndRow,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className={styles.csvOptionField}>
+                        <span>{i18n('workspace.importExport.dataEndRow')}</span>
+                        <InputNumber
+                          min={csvOptions.dataStartRow}
+                          precision={0}
+                          placeholder={i18n('workspace.importExport.endOfFile')}
+                          value={csvOptions.dataEndRow}
+                          onChange={(value) =>
+                            setCsvOptions((current) => ({
+                              ...current,
+                              dataEndRow: value === null ? undefined : value,
+                            }))
+                          }
+                        />
+                      </label>
+                    </div>
+                  ),
+                },
+                {
+                  key: 'formats',
+                  label: i18n('workspace.importExport.dateTimeFormats'),
+                  children: (
+                    <div className={styles.formatOptions}>
+                      <label className={styles.csvOptionField}>
+                        <span>{i18n('workspace.importExport.dateOrder')}</span>
+                        <Select
+                          value={csvOptions.dateOrder}
+                          options={['MDY', 'DMY', 'YMD', 'YDM', 'DYM', 'MYD'].map((value) => ({ value, label: value }))}
+                          onChange={(dateOrder) => setCsvOptions((current) => ({ ...current, dateOrder }))}
+                        />
+                      </label>
+                      <label className={styles.csvOptionField}>
+                        <span>{i18n('workspace.importExport.dateTimeOrder')}</span>
+                        <Select
+                          value={csvOptions.dateTimeOrder}
+                          options={[
+                            { value: 'DATE_TIME', label: i18n('workspace.importExport.dateFirst') },
+                            { value: 'TIME_DATE', label: i18n('workspace.importExport.timeFirst') },
+                            { value: 'DATE_TIME_TIMEZONE', label: i18n('workspace.importExport.dateTimeTimezone') },
+                            { value: 'TIME_DATE_TIMEZONE', label: i18n('workspace.importExport.timeDateTimezone') },
+                            { value: 'TIME_TIMEZONE_DATE', label: i18n('workspace.importExport.timeTimezoneDate') },
+                          ]}
+                          onChange={(dateTimeOrder) => setCsvOptions((current) => ({ ...current, dateTimeOrder }))}
+                        />
+                      </label>
+                      <div className={styles.dateDelimiterGroup}>
+                        <CharacterOption
+                          label={i18n('workspace.importExport.dateDelimiter')}
+                          value={csvOptions.dateDelimiter}
+                          fieldClassName={styles.csvOptionField}
+                          customInputClassName={styles.customCharacterInput}
+                          options={[
+                            { value: '-', label: i18n('workspace.importExport.delimiterDash') },
+                            { value: '/', label: i18n('workspace.importExport.delimiterSlash') },
+                            { value: '.', label: i18n('workspace.importExport.delimiterDot') },
+                          ]}
+                          onChange={(dateDelimiter) =>
+                            setCsvOptions((current) => ({
+                              ...current,
+                              dateDelimiter,
+                              yearDelimiter: current.customYearDelimiter ? current.yearDelimiter : dateDelimiter,
+                            }))
+                          }
+                        />
+                        <div className={styles.yearDelimiterOption}>
+                          <Checkbox
+                            checked={csvOptions.customYearDelimiter}
+                            onChange={(event) =>
+                              setCsvOptions((current) => ({
+                                ...current,
+                                customYearDelimiter: event.target.checked,
+                                yearDelimiter: event.target.checked ? current.yearDelimiter : current.dateDelimiter,
+                              }))
+                            }
+                          >
+                            {i18n('workspace.importExport.customYearDelimiter')}
+                          </Checkbox>
+                          {csvOptions.customYearDelimiter && (
+                            <CharacterOption
+                              label={i18n('workspace.importExport.yearDelimiter')}
+                              value={csvOptions.yearDelimiter}
+                              fieldClassName={styles.csvOptionField}
+                              customInputClassName={styles.customCharacterInput}
+                              options={[
+                                { value: '-', label: i18n('workspace.importExport.delimiterDash') },
+                                { value: '/', label: i18n('workspace.importExport.delimiterSlash') },
+                                { value: '.', label: i18n('workspace.importExport.delimiterDot') },
+                              ]}
+                              onChange={(yearDelimiter) => setCsvOptions((current) => ({ ...current, yearDelimiter }))}
+                            />
+                          )}
+                        </div>
+                      </div>
+                      <CharacterOption
+                        label={i18n('workspace.importExport.timeDelimiter')}
+                        value={csvOptions.timeDelimiter}
+                        fieldClassName={styles.csvOptionField}
+                        customInputClassName={styles.customCharacterInput}
+                        options={[
+                          { value: ':', label: i18n('workspace.importExport.delimiterColon') },
+                          { value: '.', label: i18n('workspace.importExport.delimiterDot') },
+                        ]}
+                        onChange={(timeDelimiter) => setCsvOptions((current) => ({ ...current, timeDelimiter }))}
+                      />
+                      <CharacterOption
+                        label={i18n('workspace.importExport.decimalSymbol')}
+                        value={csvOptions.decimalSymbol}
+                        fieldClassName={styles.csvOptionField}
+                        customInputClassName={styles.customCharacterInput}
+                        allowCustom={false}
+                        options={[
+                          { value: '.', label: i18n('workspace.importExport.delimiterDot') },
+                          { value: ',', label: i18n('workspace.importExport.delimiterComma') },
+                        ]}
+                        onChange={(decimalSymbol) => setCsvOptions((current) => ({ ...current, decimalSymbol }))}
+                      />
+                      <div className={styles.dateExamples}>
+                        <span>{i18n('workspace.importExport.dateTimeExample')}</span>
+                        {getCsvDateTimeExamples(csvOptions).map((example) => (
+                          <code key={example}>{example}</code>
+                        ))}
+                      </div>
+                    </div>
+                  ),
+                },
+              ]}
             />
-          </label>
-          <CharacterOption
-            label={i18n('workspace.importExport.delimiter')}
-            value={csvOptions.delimiter}
-            fieldClassName={styles.csvOptionField}
-            customInputClassName={styles.customCharacterInput}
-            options={[
-              { value: ',', label: i18n('workspace.importExport.delimiterComma') },
-              { value: ';', label: i18n('workspace.importExport.delimiterSemicolon') },
-              { value: '\t', label: i18n('workspace.importExport.delimiterTab') },
-              { value: '|', label: i18n('workspace.importExport.delimiterPipe') },
-            ]}
-            onChange={(delimiter) => setCsvOptions((current) => ({ ...current, delimiter }))}
-          />
-          <CharacterOption
-            label={i18n('workspace.importExport.textQualifier')}
-            value={csvOptions.quote}
-            fieldClassName={styles.csvOptionField}
-            customInputClassName={styles.customCharacterInput}
-            options={[
-              { value: '"', label: i18n('workspace.importExport.quoteDouble') },
-              { value: "'", label: i18n('workspace.importExport.quoteSingle') },
-              { value: '`', label: i18n('workspace.importExport.quoteBacktick') },
-              { value: '~', label: i18n('workspace.importExport.quoteTilde') },
-            ]}
-            onChange={(quote) =>
-              setCsvOptions((current) => ({
-                ...current,
-                quote,
-                escape: current.escape === current.quote ? quote : current.escape,
-              }))
-            }
-          />
-          <CharacterOption
-            label={i18n('workspace.importExport.escapeMethod')}
-            value={csvOptions.escape}
-            fieldClassName={styles.csvOptionField}
-            customInputClassName={styles.customCharacterInput}
-            options={[
-              { value: csvOptions.quote, label: i18n('workspace.importExport.escapeRepeatedQualifier') },
-              { value: '\\', label: i18n('workspace.importExport.escapeBackslash') },
-            ]}
-            onChange={(escape) => setCsvOptions((current) => ({ ...current, escape }))}
-          />
-          <div className={styles.csvBooleanOptions}>
-            <Checkbox
-              checked={csvOptions.hasHeader}
-              onChange={(event) => setCsvOptions((current) => ({ ...current, hasHeader: event.target.checked }))}
-            >
-              {i18n('workspace.importExport.hasHeader')}
-            </Checkbox>
-            <Checkbox
-              checked={csvOptions.emptyAsNull}
-              onChange={(event) => setCsvOptions((current) => ({ ...current, emptyAsNull: event.target.checked }))}
-            >
-              {i18n('workspace.importExport.emptyAsNull')}
-            </Checkbox>
           </div>
         </div>
       )}
@@ -483,6 +681,14 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
         <>
           <div className={styles.toolbar}>
             <strong className={styles.mappingSectionTitle}>{i18n('workspace.importExport.fieldMapping')}</strong>
+            {isCsv && (
+              <Checkbox
+                checked={csvOptions.emptyAsNull}
+                onChange={(event) => setCsvOptions((current) => ({ ...current, emptyAsNull: event.target.checked }))}
+              >
+                {i18n('workspace.importExport.emptyAsNull')}
+              </Checkbox>
+            )}
             <Select
               className={styles.unmappedTargetSelect}
               value={unmappedTarget}

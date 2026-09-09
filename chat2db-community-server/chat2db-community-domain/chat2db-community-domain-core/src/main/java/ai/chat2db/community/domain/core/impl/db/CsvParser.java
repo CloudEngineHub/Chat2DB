@@ -124,6 +124,16 @@ public final class CsvParser {
                 .newline(options.getNewline())
                 .hasHeader(options.getHasHeader())
                 .emptyAsNull(options.getEmptyAsNull())
+                .headerRow(options.getHeaderRow())
+                .dataStartRow(options.getDataStartRow())
+                .dataEndRow(options.getDataEndRow())
+                .dateOrder(options.getDateOrder())
+                .dateTimeOrder(options.getDateTimeOrder())
+                .dateDelimiter(options.getDateDelimiter())
+                .customYearDelimiter(options.getCustomYearDelimiter())
+                .yearDelimiter(options.getYearDelimiter())
+                .timeDelimiter(options.getTimeDelimiter())
+                .decimalSymbol(options.getDecimalSymbol())
                 .build());
     }
 

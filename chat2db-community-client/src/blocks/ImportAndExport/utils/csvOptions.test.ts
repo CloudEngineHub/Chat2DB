@@ -4,6 +4,7 @@ import {
   csvOptionsToPreviewParam,
   DEFAULT_CSV_OPTIONS,
   inferImportFileFormat,
+  getCsvDateTimeExamples,
   supportsCsvMappingPreview,
   validateCsvOptions,
 } from './csvOptions';
@@ -31,6 +32,18 @@ assert.equal(supportsCsvMappingPreview(ImportExportFileType.JSON), false);
 assert.equal(supportsCsvMappingPreview(ImportExportFileType.SQL), false);
 assert.equal(validateCsvOptions({ ...options, encoding: 'koi8-r' }).encoding, 'KOI8-R');
 assert.equal(validateCsvOptions({ ...options, delimiter: '^' }).delimiter, '^');
+assert.deepEqual(
+  getCsvDateTimeExamples({
+    ...options,
+    dateOrder: 'DMY',
+    dateTimeOrder: 'DATE_TIME',
+    dateDelimiter: '/',
+    customYearDelimiter: false,
+    yearDelimiter: '-',
+    timeDelimiter: ':',
+  }),
+  ['24/8/23 15:30:38', '24/8/2023 15:30:38', '24/Aug/23 15:30:38', '24/August/23 15:30:38'],
+);
 
 assert.throws(
   () => validateCsvOptions({ ...options, delimiter: '"' }),

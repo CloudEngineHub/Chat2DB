@@ -468,6 +468,16 @@ export interface ICsvOptions {
   newline: 'LF' | 'CRLF' | 'CR';
   hasHeader: boolean;
   emptyAsNull: boolean;
+  headerRow: number;
+  dataStartRow: number;
+  dataEndRow?: number;
+  dateOrder: 'YMD' | 'YDM' | 'MDY' | 'MYD' | 'DMY' | 'DYM';
+  dateTimeOrder: 'DATE_TIME' | 'TIME_DATE' | 'DATE_TIME_TIMEZONE' | 'TIME_DATE_TIMEZONE' | 'TIME_TIMEZONE_DATE';
+  dateDelimiter: string;
+  customYearDelimiter: boolean;
+  yearDelimiter: string;
+  timeDelimiter: string;
+  decimalSymbol: '.' | ',';
 }
 
 const uploadImportFile = createRequest<{ file: File }, string>('/api/rdb/import_preview/upload', {
@@ -475,10 +485,10 @@ const uploadImportFile = createRequest<{ file: File }, string>('/api/rdb/import_
   contentType: 'formData',
 });
 
-const stageDesktopImportFile = createRequest<
-  { sourceFile: string; originalFileName: string },
-  string
->('/api/rdb/import_preview/upload_local', { method: 'post' });
+const stageDesktopImportFile = createRequest<{ sourceFile: string; originalFileName: string }, string>(
+  '/api/rdb/import_preview/upload_local',
+  { method: 'post' },
+);
 
 const getImportPreview = createRequest<
   {

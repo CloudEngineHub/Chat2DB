@@ -37,14 +37,7 @@ export const useStyles = createStyles(({ css, token }) => ({
     margin-bottom: 8px;
   `,
   csvOptions: css`
-    display: grid;
-    grid-template-columns: 130px 150px 160px 170px minmax(260px, 1fr);
-    gap: 8px;
     margin-bottom: 12px;
-
-    @media (max-width: 900px) {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
   `,
   csvOptionField: css`
     display: flex;
@@ -53,6 +46,9 @@ export const useStyles = createStyles(({ css, token }) => ({
     gap: 4px;
 
     > span:first-child {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       color: ${token.colorTextSecondary};
       font-size: 12px;
     }
@@ -63,19 +59,88 @@ export const useStyles = createStyles(({ css, token }) => ({
   customCharacterInput: css`
     padding: 4px 8px;
   `,
-  csvBooleanOptions: css`
+  advancedOptions: css`
+    padding-top: 4px;
+
+    .ant-collapse-header {
+      padding: 6px 0 !important;
+      font-weight: 600;
+    }
+
+    .ant-collapse-content-box {
+      padding: 4px 0 10px !important;
+    }
+  `,
+  csvFormatOptions: css`
+    display: grid;
+    grid-template-columns: 130px 150px 160px 170px;
+    gap: 8px;
+
+    @media (max-width: 900px) {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  `,
+  sourceRowOptions: css`
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 160px));
+    gap: 8px;
+
+    .ant-input-number {
+      width: 100%;
+    }
+  `,
+  sourceRowHasHeader: css`
+    grid-column: 1 / -1;
+    width: fit-content;
+    font-size: 12px;
+  `,
+  formatOptions: css`
+    display: grid;
+    grid-template-columns: repeat(5, minmax(120px, 1fr));
+    gap: 8px;
+
+    @media (max-width: 900px) {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  `,
+  dateDelimiterGroup: css`
     display: flex;
-    height: 32px;
-    align-self: end;
-    gap: 16px;
-    align-items: center;
+    min-width: 0;
+    flex-direction: column;
+    gap: 8px;
+  `,
+  yearDelimiterOption: css`
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 
     .ant-checkbox-wrapper {
+      color: ${token.colorTextSecondary};
+      font-size: 12px;
+      white-space: nowrap;
+    }
+  `,
+  dateExamples: css`
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: auto repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    align-items: center;
+    color: ${token.colorTextSecondary};
+    font-size: 12px;
+
+    code {
+      color: ${token.colorText};
+      font-family: inherit;
       white-space: nowrap;
     }
 
     @media (max-width: 900px) {
-      grid-column: 1 / -1;
+      grid-template-columns: 1fr 1fr;
+
+      > span:first-child {
+        grid-column: 1 / -1;
+      }
     }
   `,
   sectionTitle: css`

@@ -25,8 +25,16 @@ public class CsvOptions {
     public static final String DEFAULT_QUOTE = "\"";
     public static final String DEFAULT_ESCAPE = "\"";
     public static final String DEFAULT_NEWLINE = "LF";
+    public static final String DEFAULT_DATE_ORDER = "YMD";
+    public static final String DEFAULT_DATE_TIME_ORDER = "DATE_TIME";
+    public static final String DEFAULT_DATE_DELIMITER = "-";
+    public static final String DEFAULT_TIME_DELIMITER = ":";
+    public static final String DEFAULT_DECIMAL_SYMBOL = ".";
 
     private static final Set<String> SUPPORTED_NEWLINES = Set.of("LF", "CRLF", "CR");
+    private static final Set<String> SUPPORTED_DATE_ORDERS = Set.of("YMD", "YDM", "MDY", "MYD", "DMY", "DYM");
+    private static final Set<String> SUPPORTED_DATE_TIME_ORDERS = Set.of(
+            "DATE_TIME", "TIME_DATE", "DATE_TIME_TIMEZONE", "TIME_DATE_TIMEZONE", "TIME_TIMEZONE_DATE");
 
     private String encoding;
 
@@ -42,6 +50,26 @@ public class CsvOptions {
 
     private Boolean emptyAsNull;
 
+    private Integer headerRow;
+
+    private Integer dataStartRow;
+
+    private Integer dataEndRow;
+
+    private String dateOrder;
+
+    private String dateTimeOrder;
+
+    private String dateDelimiter;
+
+    private Boolean customYearDelimiter;
+
+    private String yearDelimiter;
+
+    private String timeDelimiter;
+
+    private String decimalSymbol;
+
     public static CsvOptions defaults() {
         return CsvOptions.builder()
                 .encoding(DEFAULT_ENCODING)
@@ -51,6 +79,15 @@ public class CsvOptions {
                 .newline(DEFAULT_NEWLINE)
                 .hasHeader(true)
                 .emptyAsNull(true)
+                .headerRow(1)
+                .dataStartRow(2)
+                .dateOrder(DEFAULT_DATE_ORDER)
+                .dateTimeOrder(DEFAULT_DATE_TIME_ORDER)
+                .dateDelimiter(DEFAULT_DATE_DELIMITER)
+                .customYearDelimiter(false)
+                .yearDelimiter(DEFAULT_DATE_DELIMITER)
+                .timeDelimiter(DEFAULT_TIME_DELIMITER)
+                .decimalSymbol(DEFAULT_DECIMAL_SYMBOL)
                 .build();
     }
 
@@ -67,6 +104,16 @@ public class CsvOptions {
                 .newline(stringValue(values.get("newline"), defaults.getNewline()))
                 .hasHeader(booleanValue(values.get("hasHeader"), defaults.getHasHeader()))
                 .emptyAsNull(booleanValue(values.get("emptyAsNull"), defaults.getEmptyAsNull()))
+                .headerRow(integerValue(values.get("headerRow")))
+                .dataStartRow(integerValue(values.get("dataStartRow")))
+                .dataEndRow(integerValue(values.get("dataEndRow")))
+                .dateOrder(stringValue(values.get("dateOrder"), defaults.getDateOrder()))
+                .dateTimeOrder(stringValue(values.get("dateTimeOrder"), defaults.getDateTimeOrder()))
+                .dateDelimiter(stringValue(values.get("dateDelimiter"), defaults.getDateDelimiter()))
+                .customYearDelimiter(booleanValue(values.get("customYearDelimiter"), false))
+                .yearDelimiter(stringValue(values.get("yearDelimiter"), defaults.getYearDelimiter()))
+                .timeDelimiter(stringValue(values.get("timeDelimiter"), defaults.getTimeDelimiter()))
+                .decimalSymbol(stringValue(values.get("decimalSymbol"), defaults.getDecimalSymbol()))
                 .build();
         return options.validate();
     }
@@ -83,7 +130,16 @@ public class CsvOptions {
                 || !isSingleTextCharacter(options.quote)
                 || !isSingleTextCharacter(options.escape)
                 || options.delimiter.equals(options.quote)
-                || options.delimiter.equals(options.escape)) {
+                || options.delimiter.equals(options.escape)
+                || !SUPPORTED_DATE_ORDERS.contains(options.dateOrder)
+                || !SUPPORTED_DATE_TIME_ORDERS.contains(options.dateTimeOrder)
+                || !isSingleTextCharacter(options.dateDelimiter)
+                || !isSingleTextCharacter(options.yearDelimiter)
+                || !isSingleTextCharacter(options.timeDelimiter)
+                || !(".".equals(options.decimalSymbol) || ",".equals(options.decimalSymbol))
+                || options.headerRow < 1 || options.dataStartRow < 1
+                || options.dataEndRow != null && options.dataEndRow < options.dataStartRow
+                || Boolean.TRUE.equals(options.hasHeader) && options.headerRow >= options.dataStartRow) {
             throw new BusinessException("import.preview.invalidCsvOptions");
         }
         if (!AUTO_ENCODING.equals(options.encoding)) {
@@ -106,6 +162,16 @@ public class CsvOptions {
         values.put("newline", options.newline);
         values.put("hasHeader", options.hasHeader);
         values.put("emptyAsNull", options.emptyAsNull);
+        values.put("headerRow", options.headerRow);
+        values.put("dataStartRow", options.dataStartRow);
+        values.put("dataEndRow", options.dataEndRow);
+        values.put("dateOrder", options.dateOrder);
+        values.put("dateTimeOrder", options.dateTimeOrder);
+        values.put("dateDelimiter", options.dateDelimiter);
+        values.put("customYearDelimiter", options.customYearDelimiter);
+        values.put("yearDelimiter", options.yearDelimiter);
+        values.put("timeDelimiter", options.timeDelimiter);
+        values.put("decimalSymbol", options.decimalSymbol);
         return values;
     }
 
@@ -119,15 +185,34 @@ public class CsvOptions {
 
     private CsvOptions normalized() {
         CsvOptions defaults = defaults();
+        boolean normalizedHasHeader = hasHeader == null ? defaults.hasHeader : hasHeader;
+        int normalizedHeaderRow = headerRow == null ? defaults.headerRow : headerRow;
+        int normalizedDataStartRow = dataStartRow == null
+                ? (normalizedHasHeader ? normalizedHeaderRow + 1 : 1) : dataStartRow;
         return CsvOptions.builder()
                 .encoding(normalizeEncoding(StringUtils.defaultIfBlank(encoding, defaults.encoding)))
                 .delimiter(StringUtils.defaultIfEmpty(delimiter, defaults.delimiter))
                 .quote(StringUtils.defaultIfEmpty(quote, defaults.quote))
                 .escape(StringUtils.defaultIfEmpty(escape, defaults.escape))
                 .newline(StringUtils.defaultIfBlank(newline, defaults.newline).trim().toUpperCase(Locale.ROOT))
-                .hasHeader(hasHeader == null ? defaults.hasHeader : hasHeader)
+                .hasHeader(normalizedHasHeader)
                 .emptyAsNull(emptyAsNull == null ? defaults.emptyAsNull : emptyAsNull)
+                .headerRow(normalizedHeaderRow)
+                .dataStartRow(normalizedDataStartRow)
+                .dataEndRow(dataEndRow)
+                .dateOrder(normalizeOption(dateOrder, defaults.dateOrder))
+                .dateTimeOrder(normalizeOption(dateTimeOrder, defaults.dateTimeOrder))
+                .dateDelimiter(StringUtils.defaultIfEmpty(dateDelimiter, defaults.dateDelimiter))
+                .customYearDelimiter(Boolean.TRUE.equals(customYearDelimiter))
+                .yearDelimiter(StringUtils.defaultIfEmpty(yearDelimiter,
+                        StringUtils.defaultIfEmpty(dateDelimiter, defaults.dateDelimiter)))
+                .timeDelimiter(StringUtils.defaultIfEmpty(timeDelimiter, defaults.timeDelimiter))
+                .decimalSymbol(StringUtils.defaultIfEmpty(decimalSymbol, defaults.decimalSymbol))
                 .build();
+    }
+
+    private static String normalizeOption(String value, String defaultValue) {
+        return StringUtils.defaultIfBlank(value, defaultValue).trim().toUpperCase(Locale.ROOT);
     }
 
     private static String normalizeEncoding(String value) {
@@ -158,6 +243,21 @@ public class CsvOptions {
         }
         if (value instanceof Boolean booleanValue) {
             return booleanValue;
+        }
+        throw new BusinessException("import.preview.invalidCsvOptions");
+    }
+
+    private static Integer integerValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            long longValue = number.longValue();
+            if (longValue < Integer.MIN_VALUE || longValue > Integer.MAX_VALUE
+                    || number.doubleValue() != longValue) {
+                throw new BusinessException("import.preview.invalidCsvOptions");
+            }
+            return (int) longValue;
         }
         throw new BusinessException("import.preview.invalidCsvOptions");
     }

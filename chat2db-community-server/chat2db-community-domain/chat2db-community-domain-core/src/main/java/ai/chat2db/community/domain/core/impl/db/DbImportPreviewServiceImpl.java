@@ -119,21 +119,34 @@ public class DbImportPreviewServiceImpl implements IDbImportPreviewService {
         if (file != null && file.getName().toLowerCase(Locale.ROOT).endsWith(".csv")) {
             CsvOptions options = (csvOptions == null ? CsvOptions.defaults() : csvOptions).validate();
             try {
-                CsvParser.CsvResult result = new CsvParser(options).parse(file.toPath(),
-                        limit + (Boolean.TRUE.equals(options.getHasHeader()) ? 1 : 0));
+                int previewEndRow = options.getDataStartRow() + limit - 1;
+                if (options.getDataEndRow() != null) {
+                    previewEndRow = Math.min(previewEndRow, options.getDataEndRow());
+                }
+                int parseLimit = Math.max(previewEndRow,
+                        Boolean.TRUE.equals(options.getHasHeader()) ? options.getHeaderRow() : 0);
+                CsvParser.CsvResult result = new CsvParser(options).parse(file.toPath(), parseLimit);
                 List<Map<Integer, String>> rows = result.rows();
                 if (rows.isEmpty()) {
                     return new ParsedRows(Map.of(), List.of());
                 }
+                int firstDataIndex = options.getDataStartRow() - 1;
+                int dataEndIndex = Math.min(rows.size(), previewEndRow);
+                List<Map<Integer, String>> data = firstDataIndex >= dataEndIndex
+                        ? List.of() : rows.subList(firstDataIndex, dataEndIndex);
                 if (Boolean.TRUE.equals(options.getHasHeader())) {
-                    return new ParsedRows(rows.get(0), rows.subList(1, rows.size()));
+                    int headerIndex = options.getHeaderRow() - 1;
+                    if (headerIndex >= rows.size()) {
+                        return new ParsedRows(Map.of(), List.of());
+                    }
+                    return new ParsedRows(rows.get(headerIndex), data);
                 }
-                int columnCount = rows.stream().mapToInt(Map::size).max().orElse(0);
+                int columnCount = data.stream().mapToInt(Map::size).max().orElse(0);
                 Map<Integer, String> header = new java.util.LinkedHashMap<>();
                 for (int index = 0; index < columnCount; index++) {
                     header.put(index, "column_" + (index + 1));
                 }
-                return new ParsedRows(header, rows);
+                return new ParsedRows(header, data);
             } catch (BusinessException e) {
                 throw e;
             } catch (Exception e) {

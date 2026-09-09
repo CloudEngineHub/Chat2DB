@@ -60,6 +60,15 @@ class CsvParserTest {
                 assertThrows(BusinessException.class,
                         () -> new CsvParser("NO_SUCH_CHARSET", ",", "\"", "\"", true, true)).getCode());
         assertEquals("UTF-16", CsvOptions.builder().encoding("UTF-16").build().validate().getEncoding());
+        assertEquals("MYD", CsvOptions.builder().dateOrder("myd").build().validate().getDateOrder());
+        assertEquals("TIME_TIMEZONE_DATE", CsvOptions.builder().dateTimeOrder("time_timezone_date")
+                .build().validate().getDateTimeOrder());
+        assertEquals("import.preview.invalidCsvOptions",
+                assertThrows(BusinessException.class,
+                        () -> CsvOptions.builder().headerRow(3).dataStartRow(2).build().validate()).getCode());
+        assertEquals("import.preview.invalidCsvOptions",
+                assertThrows(BusinessException.class,
+                        () -> CsvOptions.builder().dataStartRow(4).dataEndRow(3).build().validate()).getCode());
     }
 
     @Test
