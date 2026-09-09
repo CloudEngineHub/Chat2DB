@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { TreePositionMutationCoordinator } from './treePositionMutation';
+import { TreePositionMutationCoordinator, TreePositionRefreshError } from './treePositionMutation';
 
 function deferred() {
   let resolve!: () => void;
@@ -79,11 +79,32 @@ async function testMoveCanRetryAfterFailure() {
   );
 }
 
+async function testRefreshFailureIsDistinguishedAndCanRetry() {
+  const coordinator = new TreePositionMutationCoordinator();
+  let updateCount = 0;
+  const updatePosition = () => {
+    updateCount += 1;
+    return Promise.resolve();
+  };
+
+  await assert.rejects(
+    coordinator.run('dataSource_1', updatePosition, () => Promise.reject(new Error('refresh failed'))),
+    TreePositionRefreshError,
+  );
+
+  assert.equal(
+    await coordinator.run('dataSource_1', updatePosition, () => Promise.resolve()),
+    true,
+  );
+  assert.equal(updateCount, 2);
+}
+
 async function main() {
   await testSuccessfulMoveRefreshesTree();
   await testFailedMoveDoesNotRefreshTree();
   await testConcurrentMoveForSameNodeIsRejected();
   await testMoveCanRetryAfterFailure();
+  await testRefreshFailureIsDistinguishedAndCanRetry();
   console.log('Tree position mutation tests passed');
 }
 

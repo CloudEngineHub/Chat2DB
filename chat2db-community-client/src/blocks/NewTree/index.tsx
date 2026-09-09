@@ -24,7 +24,9 @@ import connectionService from '@/service/connection';
 import { useSize } from 'ahooks';
 import { decorateDataSourceIdentityTree } from './dataSourceIdentity';
 import { measureTreeScrollWidth, resolveNextTreeScrollWidth } from './treeScrollWidth';
-import { TreePositionMutationCoordinator } from './treePositionMutation';
+import { TreePositionMutationCoordinator, TreePositionRefreshError } from './treePositionMutation';
+import i18n from '@/i18n';
+import { staticMessage } from '@chat2db/ui';
 
 interface IProps extends TreeProps<TreeNodeData> {
   className?: string;
@@ -226,7 +228,11 @@ const NewTree = (props: IProps, ref: React.ForwardedRef<NewTreeRef>) => {
           }),
         () => getTreeData({ refresh: true, throwOnError: true }),
       )
-      .catch(() => undefined);
+      .catch((error) => {
+        if (error instanceof TreePositionRefreshError) {
+          staticMessage.error(i18n('workspace.tips.treePositionRefreshFailed'));
+        }
+      });
   };
 
   const titleRender = (nodeData: TreeNodeData) => {
