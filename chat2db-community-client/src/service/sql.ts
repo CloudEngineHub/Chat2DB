@@ -490,7 +490,7 @@ const getImportPreview = createRequest<
     csvOptions?: ICsvOptions;
   },
   IImportPreview
->('/api/rdb/import_preview/preview', { method: 'post' });
+>('/api/rdb/import_preview/preview', { method: 'post', errorLevel: false });
 
 const executeImportWithMapping = createRequest<
   {

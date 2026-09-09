@@ -8,6 +8,27 @@ export const useStyles = createStyles(({ css, token }) => ({
     margin-bottom: 8px;
     color: ${token.colorError};
   `,
+  previewState: css`
+    display: flex;
+    min-height: 430px;
+    align-items: center;
+    justify-content: center;
+  `,
+  previewError: css`
+    display: flex;
+    max-width: calc(100% - 32px);
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    color: ${token.colorError};
+    line-height: 1.6;
+    text-align: center;
+    white-space: nowrap;
+
+    @media (max-width: 720px) {
+      white-space: normal;
+    }
+  `,
   toolbar: css`
     display: flex;
     flex-wrap: wrap;

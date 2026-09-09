@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox, Divider, Input, Modal, Select, Table, Tooltip } from 'antd';
+import { Button, Checkbox, Divider, Input, Modal, Select, Spin, Table, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { TriangleAlert } from 'lucide-react';
 import {
@@ -163,6 +163,9 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
     try {
       validatedCsvOptions = buildCsvOptionsForTaskSubmit(isCsv, csvOptions);
     } catch (e) {
+      setPreview(null);
+      setLoadedPreviewKey(undefined);
+      setMapping({});
       setError(e instanceof Error ? e.message : i18n('common.text.failure'));
       setLoading(false);
       return;
@@ -186,7 +189,14 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
         setLoadedPreviewKey(currentPreviewKey);
         setMapping(buildInitialImportMapping(data.sourceColumns, data.suggestedMapping));
       })
-      .catch((e) => active && setError(resolveErrorMessage(e)))
+      .catch((e) => {
+        if (active) {
+          setPreview(null);
+          setLoadedPreviewKey(undefined);
+          setMapping({});
+          setError(resolveErrorMessage(e));
+        }
+      })
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
@@ -381,7 +391,7 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
   return (
     <div className={styles.container}>
       {modalContextHolder}
-      {error && <div className={styles.error}>{error}</div>}
+      {error && preview && <div className={styles.error}>{error}</div>}
       {isCsv && (
         <div className={styles.csvOptions}>
           <strong className={styles.sectionTitle}>{i18n('workspace.importExport.csvOptions')}</strong>
@@ -455,6 +465,18 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
               {i18n('workspace.importExport.emptyAsNull')}
             </Checkbox>
           </div>
+        </div>
+      )}
+      {!preview && (
+        <div className={styles.previewState} role={error ? undefined : 'status'}>
+          {error ? (
+            <div className={styles.previewError} role="alert">
+              <TriangleAlert size={24} />
+              <span>{error}</span>
+            </div>
+          ) : (
+            <Spin />
+          )}
         </div>
       )}
       {preview && (
