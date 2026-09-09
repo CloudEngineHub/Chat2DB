@@ -14,7 +14,7 @@ import { hasSelectedImportFile } from './selection';
 interface IProps {
   className?: string;
   setIsReady?: (p: boolean) => void;
-  onImportFileChange?: (file?: File) => void;
+  onImportFileChange?: (file?: FileUrl) => void;
 }
 
 export interface ImportExportFileRef {
@@ -80,7 +80,7 @@ const ImportExportFile = forwardRef((props: IProps, ref: ForwardedRef<ImportExpo
     setSelectedFilePaths(files.map((item) => item.filePath).filter((path): path is string => !!path));
     if (isImport) {
       setIsReady?.(hasSelectedImportFile(files));
-      onImportFileChange?.(files[0]?.file);
+      onImportFileChange?.(files[0]);
     }
   };
 
