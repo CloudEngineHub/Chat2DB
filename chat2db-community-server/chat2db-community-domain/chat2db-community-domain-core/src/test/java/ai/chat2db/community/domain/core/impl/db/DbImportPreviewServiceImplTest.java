@@ -173,6 +173,27 @@ class DbImportPreviewServiceImplTest {
     }
 
     @Test
+    void previewMapsHeaderlessColumnsByPositionAndSkipsAutoIncrementTargets(@TempDir Path directory)
+            throws Exception {
+        metaData.columns = List.of(
+                TableColumn.builder().name("id").columnType("BIGINT").autoIncrement(true).build(),
+                TableColumn.builder().name("name").columnType("VARCHAR").build(),
+                TableColumn.builder().name("email").columnType("VARCHAR").build());
+        Path path = directory.resolve("headerless.csv");
+        Files.writeString(path, "Alice,alice@example.com,extra\n", StandardCharsets.UTF_8);
+
+        ImportPreview preview = new DbImportPreviewServiceImpl().preview(DATA_SOURCE_ID, DATABASE, null,
+                "orders", path.toFile(), CsvOptions.builder().hasHeader(false).build());
+
+        assertEquals(List.of("column_1", "column_2", "column_3"), preview.getSourceColumns());
+        assertEquals(2, preview.getSuggestedMapping().size());
+        assertEquals("column_1", preview.getSuggestedMapping().get(0).getSourceColumn());
+        assertEquals("name", preview.getSuggestedMapping().get(0).getTargetColumn());
+        assertEquals("column_2", preview.getSuggestedMapping().get(1).getSourceColumn());
+        assertEquals("email", preview.getSuggestedMapping().get(1).getTargetColumn());
+    }
+
+    @Test
     void previewUsesCsvDelimiterEncodingAndHeaderOptions(@TempDir Path directory) throws Exception {
         Path path = directory.resolve("custom.csv");
         Files.write(path, "Alice;olá\n".getBytes(java.nio.charset.Charset.forName("ISO-8859-1")));
@@ -258,6 +279,8 @@ class DbImportPreviewServiceImplTest {
         private int tablesRequests;
         private String tableName = "orders";
         private ISQLIdentifierProcessor identifierProcessor = new DefaultSQLIdentifierProcessor();
+        private List<TableColumn> columns = List.of(TableColumn.builder().name("name").columnType("VARCHAR")
+                .dataType(Types.VARCHAR).comment("Contact name").build());
 
         @Override
         public ISQLIdentifierProcessor getSQLIdentifierProcessor() {
@@ -274,8 +297,7 @@ class DbImportPreviewServiceImplTest {
         @Override
         public List<TableColumn> columns(Connection connection, TableMetadataRequest request) {
             requests.add(request);
-            return List.of(TableColumn.builder().name("name").columnType("VARCHAR")
-                    .dataType(Types.VARCHAR).comment("Contact name").build());
+            return columns;
         }
     }
 }

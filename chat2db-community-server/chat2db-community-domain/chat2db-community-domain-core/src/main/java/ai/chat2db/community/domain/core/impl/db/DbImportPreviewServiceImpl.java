@@ -66,15 +66,27 @@ public class DbImportPreviewServiceImpl implements IDbImportPreviewService {
                 tableName);
         List<ImportTargetColumn> targetColumns = targetColumns(targetRequest);
         List<ImportColumnMapping> suggested = new ArrayList<>();
-        for (String source : sourceNames) {
-            targetColumns.stream()
-                    .filter(target -> StringUtils.equalsIgnoreCase(target.getName(), source))
-                    .findFirst()
-                    .map(target -> ImportColumnMapping.builder()
-                            .sourceColumn(source)
-                            .targetColumn(target.getName())
-                            .build())
-                    .ifPresent(suggested::add);
+        if (parsedRows.syntheticHeader()) {
+            List<ImportTargetColumn> importableTargets = targetColumns.stream()
+                    .filter(target -> !target.isAutoIncrement())
+                    .toList();
+            for (int index = 0; index < Math.min(sourceNames.size(), importableTargets.size()); index++) {
+                suggested.add(ImportColumnMapping.builder()
+                        .sourceColumn(sourceNames.get(index))
+                        .targetColumn(importableTargets.get(index).getName())
+                        .build());
+            }
+        } else {
+            for (String source : sourceNames) {
+                targetColumns.stream()
+                        .filter(target -> StringUtils.equalsIgnoreCase(target.getName(), source))
+                        .findFirst()
+                        .map(target -> ImportColumnMapping.builder()
+                                .sourceColumn(source)
+                                .targetColumn(target.getName())
+                                .build())
+                        .ifPresent(suggested::add);
+            }
         }
 
         return ImportPreview.builder()
@@ -128,7 +140,7 @@ public class DbImportPreviewServiceImpl implements IDbImportPreviewService {
                 CsvParser.CsvResult result = new CsvParser(options).parse(file.toPath(), parseLimit);
                 List<Map<Integer, String>> rows = result.rows();
                 if (rows.isEmpty()) {
-                    return new ParsedRows(Map.of(), List.of());
+                    return new ParsedRows(Map.of(), List.of(), false);
                 }
                 int firstDataIndex = options.getDataStartRow() - 1;
                 int dataEndIndex = Math.min(rows.size(), previewEndRow);
@@ -137,16 +149,16 @@ public class DbImportPreviewServiceImpl implements IDbImportPreviewService {
                 if (Boolean.TRUE.equals(options.getHasHeader())) {
                     int headerIndex = options.getHeaderRow() - 1;
                     if (headerIndex >= rows.size()) {
-                        return new ParsedRows(Map.of(), List.of());
+                        return new ParsedRows(Map.of(), List.of(), false);
                     }
-                    return new ParsedRows(rows.get(headerIndex), data);
+                    return new ParsedRows(rows.get(headerIndex), data, false);
                 }
                 int columnCount = data.stream().mapToInt(Map::size).max().orElse(0);
                 Map<Integer, String> header = new java.util.LinkedHashMap<>();
                 for (int index = 0; index < columnCount; index++) {
                     header.put(index, "column_" + (index + 1));
                 }
-                return new ParsedRows(header, data);
+                return new ParsedRows(header, data, true);
             } catch (BusinessException e) {
                 throw e;
             } catch (Exception e) {
@@ -158,15 +170,16 @@ public class DbImportPreviewServiceImpl implements IDbImportPreviewService {
             ImportPreviewListener listener = new ImportPreviewListener(limit);
             EasyExcel.read(file, listener).excelType(excelType(file)).sheet().headRowNumber(1).doRead();
             List<Map<Integer, String>> rows = listener.rows();
-            return rows.isEmpty() ? new ParsedRows(Map.of(), List.of())
-                    : new ParsedRows(rows.get(0), rows.subList(1, rows.size()));
+            return rows.isEmpty() ? new ParsedRows(Map.of(), List.of(), false)
+                    : new ParsedRows(rows.get(0), rows.subList(1, rows.size()), false);
         } catch (Exception e) {
             log.warn("import preview parse failed for {}", file, e);
             throw new BusinessException("import.preview.parseFailed", new Object[]{e.getMessage()}, e);
         }
     }
 
-    private record ParsedRows(Map<Integer, String> header, List<Map<Integer, String>> data) {
+    private record ParsedRows(Map<Integer, String> header, List<Map<Integer, String>> data,
+            boolean syntheticHeader) {
     }
 
     private static ExcelTypeEnum excelType(File file) {
