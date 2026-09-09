@@ -59,7 +59,8 @@ export interface ImportTaskParams extends IDatabaseBaseInfo {
   taskType: ImportTaskType;
   taskName?: string;
   tableName?: string;
-  sourceFile: string;
+  sourceFile?: string;
+  fileId?: string;
   displayFileName?: string;
   format: ImportExportFileType;
   dataTimeFormat?: string;
