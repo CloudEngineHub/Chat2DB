@@ -11,12 +11,14 @@ import ai.chat2db.community.domain.api.model.task.TaskErrorCode;
 import ai.chat2db.community.domain.api.model.task.TaskExecutionException;
 import ai.chat2db.community.domain.api.service.task.TaskExecutionContext;
 import ai.chat2db.community.domain.api.model.task.extension.ExportCell;
+import ai.chat2db.community.domain.api.enums.plugin.DataTypeEnum;
 import ai.chat2db.community.domain.api.model.sql.extension.SqlExecutionPlan;
 import ai.chat2db.spi.IValueProcessor;
 import ai.chat2db.spi.model.value.JDBCDataValue;
 import ai.chat2db.spi.sql.Chat2DBContext;
 import ai.chat2db.spi.DefaultSQLExecutor;
 import ai.chat2db.spi.util.ResultSetUtils;
+import ai.chat2db.spi.util.JdbcUtils;
 import com.alibaba.excel.EasyExcel;
 import com.alibaba.excel.ExcelWriter;
 import com.alibaba.excel.support.ExcelTypeEnum;
@@ -156,6 +158,12 @@ public abstract class BaseExcelExporter extends BaseExporter {
             ResultSetMetaData metaData = resultSet.getMetaData();
             List<Integer> includedColumnIndexes = includedColumnIndexes(metaData, executionPlan);
             IValueProcessor valueProcessor = Chat2DBContext.getDbMetaData().getValueProcessor();
+            List<Boolean> formulaProtectedColumns = new ArrayList<>(includedColumnIndexes.size());
+            for (Integer columnIndex : includedColumnIndexes) {
+                DataTypeEnum dataType = JdbcUtils.resolveDataType(metaData.getColumnTypeName(columnIndex),
+                        metaData.getColumnType(columnIndex));
+                formulaProtectedColumns.add(dataType == DataTypeEnum.STRING || dataType == DataTypeEnum.CONTENT);
+            }
             if (Boolean.TRUE.equals(spec.getContainsHeader())) {
                 csvWriter.writeRow(selectColumns(ResultSetUtils.getRsHeader(resultSet), includedColumnIndexes));
             }
@@ -173,7 +181,7 @@ public abstract class BaseExcelExporter extends BaseExporter {
                         rowDataList.add(valueProcessor.getJdbcValue(jdbcDataValue));
                     }
                 }
-                csvWriter.writeRow(rowDataList);
+                csvWriter.writeRow(rowDataList, formulaProtectedColumns::get);
                 progressLogger.recordExportedRow();
                 exportedRows++;
                 hasNext = nextRow(resultSet, executionPlan, exportedRows);

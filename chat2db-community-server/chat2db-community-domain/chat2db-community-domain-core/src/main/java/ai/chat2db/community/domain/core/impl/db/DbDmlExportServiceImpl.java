@@ -2,6 +2,7 @@ package ai.chat2db.community.domain.core.impl.db;
 
 import ai.chat2db.community.domain.api.enums.ExportSizeEnum;
 import ai.chat2db.community.domain.api.enums.ExportTypeEnum;
+import ai.chat2db.community.domain.api.enums.plugin.DataTypeEnum;
 import ai.chat2db.community.domain.api.model.db.DbDmlExportPlan;
 import ai.chat2db.community.domain.api.model.metadata.DataType;
 import ai.chat2db.community.domain.api.model.request.db.DbDmlExportRequest;
@@ -176,8 +177,12 @@ public class DbDmlExportServiceImpl implements IDbDmlExportService {
         IValueProcessor valueProcessor = Chat2DBContext.getDbMetaData().getValueProcessor();
         try (CsvWriter csvWriter = new CsvWriter(csvOptions, outputStream)) {
             List<Integer> includedIndexes = new ArrayList<>();
+            List<Boolean> formulaProtectedColumns = new ArrayList<>();
             DefaultSQLExecutor.getInstance().execute(Chat2DBContext.getConnection(), plan.getSql(), headerList -> {
                 includedIndexes.addAll(sqlExecutionPolicyManager.includedColumnIndexes(plan, headerList));
+                select(headerList, includedIndexes).forEach(header -> formulaProtectedColumns.add(
+                        DataTypeEnum.STRING.name().equals(header.getDataType())
+                                || DataTypeEnum.CONTENT.name().equals(header.getDataType())));
                 try {
                     csvWriter.writeRow(select(headerList, includedIndexes).stream().map(Header::getName).toList());
                 } catch (IOException e) {
@@ -185,7 +190,7 @@ public class DbDmlExportServiceImpl implements IDbDmlExportService {
                 }
             }, dataList -> {
                 try {
-                    csvWriter.writeRow(select(dataList, includedIndexes));
+                    csvWriter.writeRow(select(dataList, includedIndexes), formulaProtectedColumns::get);
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 }

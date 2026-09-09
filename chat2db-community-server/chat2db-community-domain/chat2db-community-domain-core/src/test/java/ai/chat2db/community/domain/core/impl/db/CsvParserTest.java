@@ -10,6 +10,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -112,9 +115,10 @@ class CsvParserTest {
         CsvParser.CsvResult result = new CsvParser("AUTO", ",", "\"", "\"", true, true).parse(path, 50);
 
         assertEquals("中文", result.rows().get(1).get(0));
-        assertEquals("import.preview.invalidEncodingLine",
-                assertThrows(BusinessException.class,
-                        () -> new CsvParser("UTF-8", ",", "\"", "\"", true, true).parse(path, 50)).getCode());
+        BusinessException invalidUtf8 = assertThrows(BusinessException.class,
+                () -> new CsvParser("UTF-8", ",", "\"", "\"", true, true).parse(path, 50));
+        assertEquals("import.preview.invalidEncodingLine", invalidUtf8.getCode());
+        assertEquals(2, invalidUtf8.getArgs()[1]);
     }
 
     @Test
@@ -145,5 +149,54 @@ class CsvParserTest {
 
         assertEquals(1, result.rows().size());
         assertEquals("", result.rows().get(0).get(0));
+    }
+
+    @Test
+    void validatesCompleteFileBeforeStreamingAnyRows(@TempDir Path directory) throws Exception {
+        Path path = directory.resolve("invalid-tail.csv");
+        Files.writeString(path, "name,note\nAda,ok\nGrace,\"unterminated");
+        List<String> names = new ArrayList<>();
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> new CsvParser(CsvOptions.defaults()).forEachRow(path,
+                        row -> names.add(row.get(0)), () -> { }));
+
+        assertEquals("import.preview.unclosedQuote", error.getCode());
+        assertEquals(List.of(), names);
+    }
+
+    @Test
+    void streamsEveryRowAndChecksCancellation(@TempDir Path directory) throws Exception {
+        Path path = directory.resolve("rows.csv");
+        StringBuilder csv = new StringBuilder("id,name\n");
+        for (int index = 0; index < 10_000; index++) {
+            csv.append(index).append(",name-").append(index).append('\n');
+        }
+        Files.writeString(path, csv);
+        AtomicInteger rows = new AtomicInteger();
+        AtomicInteger cancellationChecks = new AtomicInteger();
+
+        new CsvParser(CsvOptions.defaults()).forEachRow(path, row -> rows.incrementAndGet(),
+                cancellationChecks::incrementAndGet);
+
+        assertEquals(10_001, rows.get());
+        org.junit.jupiter.api.Assertions.assertTrue(cancellationChecks.get() > rows.get());
+    }
+
+    @Test
+    void propagatesCancellationBeforeRowsAreDelivered(@TempDir Path directory) throws Exception {
+        Path path = directory.resolve("cancel.csv");
+        Files.writeString(path, "id,name\n1,Ada\n2,Grace\n");
+        AtomicInteger checks = new AtomicInteger();
+        AtomicInteger rows = new AtomicInteger();
+
+        assertThrows(IllegalStateException.class,
+                () -> new CsvParser(CsvOptions.defaults()).forEachRow(path, row -> rows.incrementAndGet(), () -> {
+                    if (checks.incrementAndGet() == 2) {
+                        throw new IllegalStateException("cancelled");
+                    }
+                }));
+
+        assertEquals(0, rows.get());
     }
 }

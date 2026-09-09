@@ -3,6 +3,7 @@ package ai.chat2db.community.domain.core.impl.db;
 import ai.chat2db.community.domain.api.model.task.CsvOptions;
 import ai.chat2db.community.tools.exception.BusinessException;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -19,6 +20,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /** Strict CSV parser shared by the import preview and execution paths. */
 public final class CsvParser {
@@ -72,9 +74,40 @@ public final class CsvParser {
         }
     }
 
+    /** Validates the complete file, then streams rows without retaining them in memory. */
+    public void forEachRow(Path path, RowConsumer rowConsumer, Runnable cancellationChecker) {
+        Objects.requireNonNull(rowConsumer, "rowConsumer");
+        Runnable checker = cancellationChecker == null ? () -> { } : cancellationChecker;
+        CsvParser validatedParser = validatedParser(path, checker);
+        validatedParser.parseOnce(path, Integer.MAX_VALUE, rowConsumer, checker);
+    }
+
+    private CsvParser validatedParser(Path path, Runnable cancellationChecker) {
+        if (!CsvOptions.AUTO_ENCODING.equals(options.getEncoding()) || hasBom(path)) {
+            parseOnce(path, Integer.MAX_VALUE, ignored -> { }, cancellationChecker);
+            return this;
+        }
+        CsvParser utf8Parser = withEncoding(CsvOptions.DEFAULT_ENCODING);
+        try {
+            utf8Parser.parseOnce(path, Integer.MAX_VALUE, ignored -> { }, cancellationChecker);
+            return utf8Parser;
+        } catch (BusinessException e) {
+            if (!"import.preview.invalidEncodingLine".equals(e.getCode())) {
+                throw e;
+            }
+            CsvParser gb18030Parser = withEncoding("GB18030");
+            gb18030Parser.parseOnce(path, Integer.MAX_VALUE, ignored -> { }, cancellationChecker);
+            return gb18030Parser;
+        }
+    }
+
     private CsvResult parseOnce(Path path, int limit) {
-        try (InputStream inputStream = Files.newInputStream(path)) {
-            return parse(inputStream, limit);
+        return parseOnce(path, limit, null, () -> { });
+    }
+
+    private CsvResult parseOnce(Path path, int limit, RowConsumer rowConsumer, Runnable cancellationChecker) {
+        try (InputStream inputStream = new BufferedInputStream(Files.newInputStream(path))) {
+            return parse(inputStream, limit, rowConsumer, cancellationChecker);
         } catch (BusinessException e) {
             throw e;
         } catch (IOException e) {
@@ -108,13 +141,20 @@ public final class CsvParser {
     }
 
     public CsvResult parse(InputStream inputStream, int limit) {
+        return parse(inputStream, limit, null, () -> { });
+    }
+
+    private CsvResult parse(InputStream inputStream, int limit, RowConsumer rowConsumer, Runnable cancellationChecker) {
         try {
-            BomAwareInput bomAwareInput = detectBom(new OneByteInputStream(inputStream));
+            BomAwareInput bomAwareInput = detectBom(new LineBoundedInputStream(inputStream));
             CharsetDecoder decoder = bomAwareInput.charset().newDecoder()
                     .onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT);
-            return parse(new InputStreamReader(bomAwareInput.inputStream(), decoder), limit);
+            return parse(new InputStreamReader(bomAwareInput.inputStream(), decoder), limit, rowConsumer,
+                    cancellationChecker);
         } catch (BusinessException e) {
+            throw e;
+        } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
             throw new BusinessException("import.preview.invalidEncoding", new Object[]{options.getEncoding()}, e);
@@ -122,16 +162,22 @@ public final class CsvParser {
     }
 
     CsvResult parse(Reader reader, int limit) {
+        return parse(reader, limit, null, () -> { });
+    }
+
+    private CsvResult parse(Reader reader, int limit, RowConsumer rowConsumer, Runnable cancellationChecker) {
         try {
-            return parseRows(reader, limit);
+            return parseRows(reader, limit, rowConsumer, cancellationChecker);
         } catch (BusinessException e) {
+            throw e;
+        } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
             throw new BusinessException("import.preview.invalidEncoding", new Object[]{options.getEncoding()}, e);
         }
     }
 
-    private CsvResult parseRows(Reader reader, int limit) {
+    private CsvResult parseRows(Reader reader, int limit, RowConsumer rowConsumer, Runnable cancellationChecker) {
         List<Map<Integer, CsvCell>> cellRows = new ArrayList<>();
         List<CsvCell> fields = new ArrayList<>();
         StringBuilder field = new StringBuilder();
@@ -142,12 +188,19 @@ public final class CsvParser {
         boolean quotedField = false;
         int line = 1;
         int quoteStartLine = 1;
+        int rowCount = 0;
+        int charactersUntilCancellationCheck = 8192;
+        cancellationChecker.run();
         if (limit <= 0) {
             return result(cellRows);
         }
         try {
             int next;
             while ((next = pushbackReader.read()) != -1) {
+                if (--charactersUntilCancellationCheck == 0) {
+                    cancellationChecker.run();
+                    charactersUntilCancellationCheck = 8192;
+                }
                 char current = (char) next;
                 if (inQuotedField) {
                     if (escape != quote && current == escape) {
@@ -229,8 +282,11 @@ public final class CsvParser {
                         }
                     }
                     fields.add(fieldValue(field, quotedField));
-                    cellRows.add(row(fields));
-                    if (cellRows.size() >= limit) {
+                    Map<Integer, CsvCell> completedRow = row(fields);
+                    emitRow(cellRows, completedRow, rowConsumer);
+                    rowCount++;
+                    cancellationChecker.run();
+                    if (rowCount >= limit) {
                         return result(cellRows);
                     }
                     fields = new ArrayList<>();
@@ -248,6 +304,8 @@ public final class CsvParser {
             throw new BusinessException("import.preview.invalidEncodingLine", new Object[]{options.getEncoding(), line}, e);
         } catch (BusinessException e) {
             throw e;
+        } catch (RuntimeException e) {
+            throw e;
         } catch (IOException e) {
             throw new BusinessException("import.preview.parseFailed", new Object[]{e.getMessage()}, e);
         } catch (Exception e) {
@@ -258,9 +316,21 @@ public final class CsvParser {
         }
         if (!fields.isEmpty() || field.length() > 0 || quotedField || justClosedQuote) {
             fields.add(fieldValue(field, quotedField));
-            cellRows.add(row(fields));
+            emitRow(cellRows, row(fields), rowConsumer);
         }
+        cancellationChecker.run();
         return result(cellRows);
+    }
+
+    private static void emitRow(List<Map<Integer, CsvCell>> cellRows, Map<Integer, CsvCell> row,
+            RowConsumer rowConsumer) {
+        if (rowConsumer == null) {
+            cellRows.add(row);
+            return;
+        }
+        Map<Integer, String> values = new LinkedHashMap<>();
+        row.forEach((index, cell) -> values.put(index, cell == null ? null : cell.value()));
+        rowConsumer.accept(values);
     }
 
     private CsvCell fieldValue(StringBuilder field, boolean quoted) {
@@ -340,47 +410,67 @@ public final class CsvParser {
     public record CsvResult(List<Map<Integer, String>> rows, List<Map<Integer, CsvCell>> cells, int headerRowCount) {
     }
 
+    @FunctionalInterface
+    public interface RowConsumer {
+        void accept(Map<Integer, String> row);
+    }
+
     private record BomAwareInput(InputStream inputStream, Charset charset) {
     }
 
     private static final class OneByteInputStream extends InputStream {
         private final byte[] bytes;
-        private final InputStream inputStream;
         private int position;
 
         private OneByteInputStream(byte[] bytes) {
             this.bytes = bytes;
-            this.inputStream = null;
-        }
-
-        private OneByteInputStream(InputStream inputStream) {
-            this.bytes = null;
-            this.inputStream = inputStream;
         }
 
         @Override
         public int read() throws IOException {
-            if (inputStream != null) {
-                return inputStream.read();
-            }
             return position >= bytes.length ? -1 : bytes[position++] & 0xff;
         }
 
         @Override
         public int read(byte[] buffer, int offset, int length) throws IOException {
-            if (inputStream != null) {
-                int next = inputStream.read();
-                if (next == -1) {
-                    return -1;
-                }
-                buffer[offset] = (byte) next;
-                return 1;
-            }
             if (position >= bytes.length) {
                 return -1;
             }
             buffer[offset] = bytes[position++];
             return 1;
+        }
+    }
+
+    /** Lets the decoder read in batches without prefetching bytes from a later source line. */
+    private static final class LineBoundedInputStream extends InputStream {
+        private final InputStream inputStream;
+
+        private LineBoundedInputStream(InputStream inputStream) {
+            this.inputStream = inputStream;
+        }
+
+        @Override
+        public int read() throws IOException {
+            return inputStream.read();
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            if (length == 0) {
+                return 0;
+            }
+            int count = 0;
+            while (count < length) {
+                int next = inputStream.read();
+                if (next == -1) {
+                    return count == 0 ? -1 : count;
+                }
+                buffer[offset + count++] = (byte) next;
+                if (next == '\n' || next == '\r') {
+                    break;
+                }
+            }
+            return count;
         }
     }
 }

@@ -10,6 +10,7 @@ import java.io.Writer;
 import java.nio.charset.Charset;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.IntPredicate;
 
 /** CSV writer paired with {@link CsvParser}. */
 public final class CsvWriter implements Closeable {
@@ -35,20 +36,27 @@ public final class CsvWriter implements Closeable {
     }
 
     public void writeRow(List<?> values) throws IOException {
+        writeRow(values, ignored -> true);
+    }
+
+    public void writeRow(List<?> values, IntPredicate protectFormula) throws IOException {
         for (int index = 0; index < values.size(); index++) {
             if (index > 0) {
                 writer.write(delimiter);
             }
-            writeField(values.get(index));
+            writeField(values.get(index), protectFormula.test(index));
         }
         writer.write(newline);
     }
 
-    private void writeField(Object rawValue) throws IOException {
+    private void writeField(Object rawValue, boolean protectFormula) throws IOException {
         if (rawValue == null) {
             return;
         }
-        String value = neutralizeSpreadsheetFormula(Objects.toString(rawValue, ""));
+        String value = Objects.toString(rawValue, "");
+        if (protectFormula) {
+            value = neutralizeSpreadsheetFormula(value);
+        }
         boolean quoteField = value.indexOf(delimiter) >= 0
                 || value.indexOf(quote) >= 0
                 || value.indexOf('\n') >= 0

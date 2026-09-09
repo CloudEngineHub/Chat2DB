@@ -45,4 +45,16 @@ class CsvWriterTest {
 
         assertEquals("formula,literal\n'=1+1,C:\\temp\\new\n", output.toString(StandardCharsets.UTF_8));
     }
+
+    @Test
+    void preservesSignedNumbersWhileProtectingTextFormulas() throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        CsvWriter writer = new CsvWriter(CsvOptions.defaults(), output);
+
+        writer.writeRow(List.of("amount", "formula"));
+        writer.writeRow(List.of("-12.5", "-2+3"), index -> index == 1);
+        writer.close();
+
+        assertEquals("amount,formula\n-12.5,'-2+3\n", output.toString(StandardCharsets.UTF_8));
+    }
 }

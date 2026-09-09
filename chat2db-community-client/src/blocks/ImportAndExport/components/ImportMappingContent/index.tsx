@@ -54,6 +54,10 @@ const CharacterOption = ({
   onChange,
 }: CharacterOptionProps) => {
   const preset = options.some((option) => option.value === value);
+  const [customValue, setCustomValue] = useState(preset ? '' : value);
+  useEffect(() => {
+    setCustomValue(preset ? '' : value);
+  }, [preset, value]);
   const selectOptions = preset
     ? options
     : [...options, { value, label: i18n('workspace.importExport.customCharacterValue', value) }];
@@ -74,9 +78,15 @@ const CharacterOption = ({
                 aria-label={i18n('workspace.importExport.customCharacter')}
                 maxLength={1}
                 placeholder={i18n('workspace.importExport.customCharacter')}
-                value={preset ? '' : value}
+                value={customValue}
                 onKeyDown={(event) => event.stopPropagation()}
-                onChange={(event) => event.target.value && onChange(event.target.value)}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setCustomValue(nextValue);
+                  if (nextValue) {
+                    onChange(nextValue);
+                  }
+                }}
               />
             </div>
           </>
@@ -105,6 +115,15 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
   const [csvOptions, setCsvOptions] = useState<ICsvOptions>(DEFAULT_CSV_OPTIONS);
   const selectedFileName = file.fileName || file.file?.name || file.filePath || '';
   const isCsv = inferImportFileFormat(selectedFileName) === ImportExportFileType.CSV;
+  const currentPreviewKey = JSON.stringify({
+    dataSourceId,
+    databaseName,
+    schemaName,
+    tableName,
+    fileId,
+    csvOptions: isCsv ? csvOptions : undefined,
+  });
+  const [loadedPreviewKey, setLoadedPreviewKey] = useState<string>();
   const resolveErrorMessage = useCallback(
     (requestError: unknown) =>
       getImportPreviewErrorMessage(requestError, i18n('common.text.failure'), {
@@ -164,6 +183,7 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
           return;
         }
         setPreview(data);
+        setLoadedPreviewKey(currentPreviewKey);
         setMapping(buildInitialImportMapping(data.sourceColumns, data.suggestedMapping));
       })
       .catch((e) => active && setError(resolveErrorMessage(e)))
@@ -171,7 +191,17 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
     return () => {
       active = false;
     };
-  }, [csvOptions, dataSourceId, databaseName, fileId, isCsv, resolveErrorMessage, schemaName, tableName]);
+  }, [
+    currentPreviewKey,
+    csvOptions,
+    dataSourceId,
+    databaseName,
+    fileId,
+    isCsv,
+    resolveErrorMessage,
+    schemaName,
+    tableName,
+  ]);
 
   const targetOptions = useMemo(() => {
     if (!preview) {
@@ -465,7 +495,12 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
             scroll={{ x: 'max-content', y: 380 }}
           />
           <div className={styles.actions}>
-            <Button type="primary" loading={executing} onClick={execute}>
+            <Button
+              type="primary"
+              loading={executing}
+              disabled={loading || !fileId || loadedPreviewKey !== currentPreviewKey}
+              onClick={execute}
+            >
               {i18n('common.button.execute')}
             </Button>
           </div>
