@@ -36,6 +36,64 @@ interface IProps {
   onSubmitted: (taskId: number) => void;
 }
 
+const CUSTOM_CHARACTER = '__custom__';
+
+interface CharacterOptionProps {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  fieldClassName: string;
+  controlClassName: string;
+  onChange: (value: string) => void;
+}
+
+const CharacterOption = ({
+  label,
+  value,
+  options,
+  fieldClassName,
+  controlClassName,
+  onChange,
+}: CharacterOptionProps) => {
+  const preset = options.some((option) => option.value === value);
+  const [custom, setCustom] = useState(!preset);
+  const [customValue, setCustomValue] = useState(preset ? '' : value);
+
+  return (
+    <label className={fieldClassName}>
+      <span>{label}</span>
+      <div className={controlClassName} style={custom ? { gridTemplateColumns: 'minmax(0, 1fr) 56px' } : undefined}>
+        <Select
+          value={custom ? CUSTOM_CHARACTER : value}
+          options={[...options, { value: CUSTOM_CHARACTER, label: i18n('workspace.importExport.customCharacter') }]}
+          onChange={(nextValue) => {
+            if (nextValue === CUSTOM_CHARACTER) {
+              setCustom(true);
+              return;
+            }
+            setCustom(false);
+            onChange(nextValue);
+          }}
+        />
+        {custom && (
+          <Input
+            aria-label={label}
+            maxLength={1}
+            value={customValue}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              setCustomValue(nextValue);
+              if (nextValue) {
+                onChange(nextValue);
+              }
+            }}
+          />
+        )}
+      </div>
+    </label>
+  );
+};
+
 /**
  * Database-independent import preview and column mapping. Loads a bounded preview of the
  * file, lets the user remap source fields to target columns (or skip them), chooses how
@@ -305,58 +363,81 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
       {isCsv && (
         <div className={styles.csvOptions}>
           <strong className={styles.sectionTitle}>{i18n('workspace.importExport.csvOptions')}</strong>
-          <LocalFileEncodingSelect
-            charset={csvOptions.encoding === 'AUTO' ? undefined : csvOptions.encoding}
-            disabled={executing}
-            onEncodingChange={async (encoding) => {
-              setCsvOptions((current) => ({ ...current, encoding: encoding || 'AUTO' }));
-            }}
-          />
-          <Input
-            aria-label={i18n('workspace.importExport.delimiter')}
-            className={styles.characterInput}
-            maxLength={1}
+          <label className={styles.csvOptionField}>
+            <span>{i18n('workspace.importExport.encoding')}</span>
+            <div className={styles.encodingControl}>
+              <LocalFileEncodingSelect
+                charset={csvOptions.encoding === 'AUTO' ? undefined : csvOptions.encoding}
+                disabled={executing}
+                onEncodingChange={async (encoding) => {
+                  setCsvOptions((current) => ({ ...current, encoding: encoding || 'AUTO' }));
+                }}
+              />
+            </div>
+          </label>
+          <CharacterOption
+            label={i18n('workspace.importExport.delimiter')}
             value={csvOptions.delimiter}
-            onChange={(event) => setCsvOptions((current) => ({ ...current, delimiter: event.target.value }))}
+            fieldClassName={styles.csvOptionField}
+            controlClassName={styles.csvOptionControl}
+            options={[
+              { value: ',', label: i18n('workspace.importExport.delimiterComma') },
+              { value: ';', label: i18n('workspace.importExport.delimiterSemicolon') },
+              { value: '\t', label: i18n('workspace.importExport.delimiterTab') },
+              { value: '|', label: i18n('workspace.importExport.delimiterPipe') },
+            ]}
+            onChange={(delimiter) => setCsvOptions((current) => ({ ...current, delimiter }))}
           />
-          <Select
-            aria-label={i18n('workspace.importExport.quote')}
-            className={styles.characterInput}
+          <CharacterOption
+            label={i18n('workspace.importExport.textQualifier')}
             value={csvOptions.quote}
+            fieldClassName={styles.csvOptionField}
+            controlClassName={styles.csvOptionControl}
             options={[
               { value: '"', label: i18n('workspace.importExport.quoteDouble') },
               { value: "'", label: i18n('workspace.importExport.quoteSingle') },
+              { value: '`', label: i18n('workspace.importExport.quoteBacktick') },
+              { value: '~', label: i18n('workspace.importExport.quoteTilde') },
             ]}
-            onChange={(quote) => setCsvOptions((current) => ({ ...current, quote }))}
+            onChange={(quote) =>
+              setCsvOptions((current) => ({
+                ...current,
+                quote,
+                escape: current.escape === current.quote ? quote : current.escape,
+              }))
+            }
           />
-          <Select
-            aria-label={i18n('workspace.importExport.escape')}
-            className={styles.encodingInput}
+          <CharacterOption
+            label={i18n('workspace.importExport.escapeMethod')}
             value={csvOptions.escape}
+            fieldClassName={styles.csvOptionField}
+            controlClassName={styles.csvOptionControl}
             options={[
-              { value: '"', label: i18n('workspace.importExport.escapeDouble') },
+              { value: csvOptions.quote, label: i18n('workspace.importExport.escapeRepeatedQualifier') },
               { value: '\\', label: i18n('workspace.importExport.escapeBackslash') },
             ]}
             onChange={(escape) => setCsvOptions((current) => ({ ...current, escape }))}
           />
-          <Checkbox
-            checked={csvOptions.hasHeader}
-            onChange={(event) => setCsvOptions((current) => ({ ...current, hasHeader: event.target.checked }))}
-          >
-            {i18n('workspace.importExport.hasHeader')}
-          </Checkbox>
-          <Checkbox
-            checked={csvOptions.emptyAsNull}
-            onChange={(event) => setCsvOptions((current) => ({ ...current, emptyAsNull: event.target.checked }))}
-          >
-            {i18n('workspace.importExport.emptyAsNull')}
-          </Checkbox>
+          <div className={styles.csvBooleanOptions}>
+            <Checkbox
+              checked={csvOptions.hasHeader}
+              onChange={(event) => setCsvOptions((current) => ({ ...current, hasHeader: event.target.checked }))}
+            >
+              {i18n('workspace.importExport.hasHeader')}
+            </Checkbox>
+            <Checkbox
+              checked={csvOptions.emptyAsNull}
+              onChange={(event) => setCsvOptions((current) => ({ ...current, emptyAsNull: event.target.checked }))}
+            >
+              {i18n('workspace.importExport.emptyAsNull')}
+            </Checkbox>
+          </div>
         </div>
       )}
       {preview && (
         <>
           <div className={styles.toolbar}>
-            <strong className={styles.sectionTitle}>{i18n('workspace.importExport.fieldMapping')}</strong>
+            <strong className={styles.mappingSectionTitle}>{i18n('workspace.importExport.fieldMapping')}</strong>
             <Select
               className={styles.unmappedTargetSelect}
               value={unmappedTarget}

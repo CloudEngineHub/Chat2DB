@@ -15,8 +15,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
-import java.io.InputStream;
-import java.nio.file.Files;
 import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -120,8 +118,8 @@ public class DbImportPreviewServiceImpl implements IDbImportPreviewService {
     private static ParsedRows parseRows(File file, int limit, CsvOptions csvOptions) {
         if (file != null && file.getName().toLowerCase(Locale.ROOT).endsWith(".csv")) {
             CsvOptions options = (csvOptions == null ? CsvOptions.defaults() : csvOptions).validate();
-            try (InputStream inputStream = Files.newInputStream(file.toPath())) {
-                CsvParser.CsvResult result = new CsvParser(options).parse(inputStream,
+            try {
+                CsvParser.CsvResult result = new CsvParser(options).parse(file.toPath(),
                         limit + (Boolean.TRUE.equals(options.getHasHeader()) ? 1 : 0));
                 List<Map<Integer, String>> rows = result.rows();
                 if (rows.isEmpty()) {

@@ -16,19 +16,51 @@ export const useStyles = createStyles(({ css, token }) => ({
     margin-bottom: 8px;
   `,
   csvOptions: css`
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 8px;
-    align-items: center;
     margin-bottom: 12px;
   `,
-  encodingInput: css`
-    width: 160px;
+  csvOptionField: css`
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 4px;
+
+    > span:first-child {
+      color: ${token.colorTextSecondary};
+      font-size: 12px;
+    }
   `,
-  characterInput: css`
-    width: 84px;
+  csvOptionControl: css`
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+
+    .ant-select,
+    .ant-input {
+      width: 100%;
+    }
+  `,
+  encodingControl: css`
+    display: flex;
+    min-height: 32px;
+    align-items: center;
+    border: 1px solid ${token.colorBorder};
+    border-radius: ${token.borderRadius}px;
+    padding: 0 8px;
+  `,
+  csvBooleanOptions: css`
+    display: flex;
+    grid-column: 1 / -1;
+    gap: 20px;
+    align-items: center;
   `,
   sectionTitle: css`
+    grid-column: 1 / -1;
+    font-size: 14px;
+  `,
+  mappingSectionTitle: css`
     margin-right: auto;
     font-size: 14px;
   `,

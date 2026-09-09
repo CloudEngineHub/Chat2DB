@@ -8,8 +8,6 @@ import ai.chat2db.community.domain.core.impl.db.CsvParser;
 import ai.chat2db.community.domain.core.impl.task.imports.IImportStrategy;
 import com.alibaba.excel.support.ExcelTypeEnum;
 
-import java.io.InputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -21,13 +19,7 @@ public class CSVImporter extends BaseExcelImporter implements IImportStrategy {
     protected void doImportData(ImportTaskSpec spec, TaskExecutionContext context, List<TableColumn> columns) {
         CsvOptions options = (spec.getCsvOptions() == null ? CsvOptions.defaults() : spec.getCsvOptions()).validate();
         CsvParser.CsvResult result;
-        try (InputStream inputStream = Files.newInputStream(Path.of(spec.getSourceFile()))) {
-            result = new CsvParser(options).parse(inputStream, Integer.MAX_VALUE);
-        } catch (RuntimeException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IllegalStateException("Could not read CSV import file", e);
-        }
+        result = new CsvParser(options).parse(Path.of(spec.getSourceFile()), Integer.MAX_VALUE);
 
         List<Map<Integer, String>> rows = result.rows();
         if (rows.isEmpty()) {

@@ -12,6 +12,8 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.io.Reader;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -54,6 +56,55 @@ public final class CsvParser {
 
     CsvResult parse(byte[] bytes, int limit) {
         return parse(new OneByteInputStream(bytes), limit);
+    }
+
+    public CsvResult parse(Path path, int limit) {
+        if (!CsvOptions.AUTO_ENCODING.equals(options.getEncoding()) || hasBom(path)) {
+            return parseOnce(path, limit);
+        }
+        try {
+            return withEncoding(CsvOptions.DEFAULT_ENCODING).parseOnce(path, limit);
+        } catch (BusinessException e) {
+            if (!"import.preview.invalidEncodingLine".equals(e.getCode())) {
+                throw e;
+            }
+            return withEncoding("GB18030").parseOnce(path, limit);
+        }
+    }
+
+    private CsvResult parseOnce(Path path, int limit) {
+        try (InputStream inputStream = Files.newInputStream(path)) {
+            return parse(inputStream, limit);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new BusinessException("import.preview.fileUnreadable", new Object[]{e.getMessage()}, e);
+        }
+    }
+
+    private CsvParser withEncoding(String encoding) {
+        return new CsvParser(CsvOptions.builder()
+                .encoding(encoding)
+                .delimiter(options.getDelimiter())
+                .quote(options.getQuote())
+                .escape(options.getEscape())
+                .newline(options.getNewline())
+                .hasHeader(options.getHasHeader())
+                .emptyAsNull(options.getEmptyAsNull())
+                .build());
+    }
+
+    private static boolean hasBom(Path path) {
+        try (InputStream inputStream = Files.newInputStream(path)) {
+            int first = inputStream.read();
+            int second = inputStream.read();
+            int third = inputStream.read();
+            return first == 0xEF && second == 0xBB && third == 0xBF
+                    || first == 0xFF && second == 0xFE
+                    || first == 0xFE && second == 0xFF;
+        } catch (IOException e) {
+            throw new BusinessException("import.preview.fileUnreadable", new Object[]{e.getMessage()}, e);
+        }
     }
 
     public CsvResult parse(InputStream inputStream, int limit) {

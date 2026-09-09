@@ -3,10 +3,13 @@ package ai.chat2db.community.domain.core.impl.db;
 import ai.chat2db.community.domain.api.model.task.CsvOptions;
 import ai.chat2db.community.tools.exception.BusinessException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -99,6 +102,19 @@ class CsvParserTest {
         assertEquals("name", result.rows().get(0).get(0));
         assertEquals("", result.rows().get(1).get(1));
         assertEquals(null, result.rows().get(2).get(1));
+    }
+
+    @Test
+    void autoDetectionFallsBackFromUtf8ToGb18030(@TempDir Path directory) throws Exception {
+        Path path = directory.resolve("gb18030.csv");
+        Files.write(path, "name\n中文\n".getBytes(Charset.forName("GB18030")));
+
+        CsvParser.CsvResult result = new CsvParser("AUTO", ",", "\"", "\"", true, true).parse(path, 50);
+
+        assertEquals("中文", result.rows().get(1).get(0));
+        assertEquals("import.preview.invalidEncodingLine",
+                assertThrows(BusinessException.class,
+                        () -> new CsvParser("UTF-8", ",", "\"", "\"", true, true).parse(path, 50)).getCode());
     }
 
     @Test
