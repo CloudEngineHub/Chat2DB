@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox, Input, Modal, Select, Table, Tooltip } from 'antd';
+import { Button, Checkbox, Divider, Input, Modal, Select, Table, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { TriangleAlert } from 'lucide-react';
 import {
@@ -36,14 +36,12 @@ interface IProps {
   onSubmitted: (taskId: number) => void;
 }
 
-const CUSTOM_CHARACTER = '__custom__';
-
 interface CharacterOptionProps {
   label: string;
   value: string;
   options: { value: string; label: string }[];
   fieldClassName: string;
-  controlClassName: string;
+  customInputClassName: string;
   onChange: (value: string) => void;
 }
 
@@ -52,44 +50,38 @@ const CharacterOption = ({
   value,
   options,
   fieldClassName,
-  controlClassName,
+  customInputClassName,
   onChange,
 }: CharacterOptionProps) => {
   const preset = options.some((option) => option.value === value);
-  const [custom, setCustom] = useState(!preset);
-  const [customValue, setCustomValue] = useState(preset ? '' : value);
+  const selectOptions = preset
+    ? options
+    : [...options, { value, label: i18n('workspace.importExport.customCharacterValue', value) }];
 
   return (
     <label className={fieldClassName}>
       <span>{label}</span>
-      <div className={controlClassName} style={custom ? { gridTemplateColumns: 'minmax(0, 1fr) 56px' } : undefined}>
-        <Select
-          value={custom ? CUSTOM_CHARACTER : value}
-          options={[...options, { value: CUSTOM_CHARACTER, label: i18n('workspace.importExport.customCharacter') }]}
-          onChange={(nextValue) => {
-            if (nextValue === CUSTOM_CHARACTER) {
-              setCustom(true);
-              return;
-            }
-            setCustom(false);
-            onChange(nextValue);
-          }}
-        />
-        {custom && (
-          <Input
-            aria-label={label}
-            maxLength={1}
-            value={customValue}
-            onChange={(event) => {
-              const nextValue = event.target.value;
-              setCustomValue(nextValue);
-              if (nextValue) {
-                onChange(nextValue);
-              }
-            }}
-          />
+      <Select
+        value={value}
+        options={selectOptions}
+        onChange={onChange}
+        dropdownRender={(menu) => (
+          <>
+            {menu}
+            <Divider style={{ margin: '4px 0' }} />
+            <div className={customInputClassName} onMouseDown={(event) => event.stopPropagation()}>
+              <Input
+                aria-label={i18n('workspace.importExport.customCharacter')}
+                maxLength={1}
+                placeholder={i18n('workspace.importExport.customCharacter')}
+                value={preset ? '' : value}
+                onKeyDown={(event) => event.stopPropagation()}
+                onChange={(event) => event.target.value && onChange(event.target.value)}
+              />
+            </div>
+          </>
         )}
-      </div>
+      />
     </label>
   );
 };
@@ -365,21 +357,22 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
           <strong className={styles.sectionTitle}>{i18n('workspace.importExport.csvOptions')}</strong>
           <label className={styles.csvOptionField}>
             <span>{i18n('workspace.importExport.encoding')}</span>
-            <div className={styles.encodingControl}>
-              <LocalFileEncodingSelect
-                charset={csvOptions.encoding === 'AUTO' ? undefined : csvOptions.encoding}
-                disabled={executing}
-                onEncodingChange={async (encoding) => {
-                  setCsvOptions((current) => ({ ...current, encoding: encoding || 'AUTO' }));
-                }}
-              />
-            </div>
+            <LocalFileEncodingSelect
+              className={styles.fullWidthControl}
+              charset={csvOptions.encoding === 'AUTO' ? undefined : csvOptions.encoding}
+              disabled={executing}
+              size="middle"
+              variant="outlined"
+              onEncodingChange={async (encoding) => {
+                setCsvOptions((current) => ({ ...current, encoding: encoding || 'AUTO' }));
+              }}
+            />
           </label>
           <CharacterOption
             label={i18n('workspace.importExport.delimiter')}
             value={csvOptions.delimiter}
             fieldClassName={styles.csvOptionField}
-            controlClassName={styles.csvOptionControl}
+            customInputClassName={styles.customCharacterInput}
             options={[
               { value: ',', label: i18n('workspace.importExport.delimiterComma') },
               { value: ';', label: i18n('workspace.importExport.delimiterSemicolon') },
@@ -392,7 +385,7 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
             label={i18n('workspace.importExport.textQualifier')}
             value={csvOptions.quote}
             fieldClassName={styles.csvOptionField}
-            controlClassName={styles.csvOptionControl}
+            customInputClassName={styles.customCharacterInput}
             options={[
               { value: '"', label: i18n('workspace.importExport.quoteDouble') },
               { value: "'", label: i18n('workspace.importExport.quoteSingle') },
@@ -411,7 +404,7 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
             label={i18n('workspace.importExport.escapeMethod')}
             value={csvOptions.escape}
             fieldClassName={styles.csvOptionField}
-            controlClassName={styles.csvOptionControl}
+            customInputClassName={styles.customCharacterInput}
             options={[
               { value: csvOptions.quote, label: i18n('workspace.importExport.escapeRepeatedQualifier') },
               { value: '\\', label: i18n('workspace.importExport.escapeBackslash') },

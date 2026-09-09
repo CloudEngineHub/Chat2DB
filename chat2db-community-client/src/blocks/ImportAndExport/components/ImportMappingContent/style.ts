@@ -17,9 +17,13 @@ export const useStyles = createStyles(({ css, token }) => ({
   `,
   csvOptions: css`
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: 130px 150px 160px 170px minmax(260px, 1fr);
     gap: 8px;
     margin-bottom: 12px;
+
+    @media (max-width: 900px) {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   `,
   csvOptionField: css`
     display: flex;
@@ -32,29 +36,26 @@ export const useStyles = createStyles(({ css, token }) => ({
       font-size: 12px;
     }
   `,
-  csvOptionControl: css`
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 6px;
-
-    .ant-select,
-    .ant-input {
-      width: 100%;
-    }
+  fullWidthControl: css`
+    width: 100%;
   `,
-  encodingControl: css`
-    display: flex;
-    min-height: 32px;
-    align-items: center;
-    border: 1px solid ${token.colorBorder};
-    border-radius: ${token.borderRadius}px;
-    padding: 0 8px;
+  customCharacterInput: css`
+    padding: 4px 8px;
   `,
   csvBooleanOptions: css`
     display: flex;
-    grid-column: 1 / -1;
-    gap: 20px;
+    height: 32px;
+    align-self: end;
+    gap: 16px;
     align-items: center;
+
+    .ant-checkbox-wrapper {
+      white-space: nowrap;
+    }
+
+    @media (max-width: 900px) {
+      grid-column: 1 / -1;
+    }
   `,
   sectionTitle: css`
     grid-column: 1 / -1;
