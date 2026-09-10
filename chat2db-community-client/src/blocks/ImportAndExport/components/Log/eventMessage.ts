@@ -6,6 +6,10 @@ const lifecycleMessageKeys = {
   TASK_CREATED: 'workspace.task.event.taskCreated',
   TASK_STARTED: 'workspace.task.event.taskStarted',
   TASK_SUCCEEDED: 'workspace.task.event.taskSucceeded',
+  IMPORT_PREPARING: 'workspace.task.event.importPreparing',
+  TARGET_METADATA_LOADED: 'workspace.task.event.targetMetadataLoaded',
+  IMPORT_COMPLETED: 'workspace.task.event.importCompleted',
+  IMPORT_BATCH_FAILED: 'workspace.task.event.importBatchFailed',
 } as const;
 
 const fixedMessageKeys = {

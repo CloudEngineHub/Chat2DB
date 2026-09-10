@@ -2,7 +2,7 @@ import { ICsvOptions } from '@/service/sql';
 import { ImportExportFileType } from '@/constants/importExport';
 
 export const DEFAULT_CSV_OPTIONS: ICsvOptions = {
-  encoding: 'UTF-8',
+  encoding: 'AUTO',
   delimiter: ',',
   quote: '"',
   escape: '"',

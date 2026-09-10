@@ -15,6 +15,7 @@ const event = (code: string, message: string): ImportExportTaskEvent => ({
 const translations: Record<'zh' | 'en', Partial<Record<TaskEventMessageKey, string>>> = {
   zh: {
     'workspace.task.event.taskCreated': '任务已创建',
+    'workspace.task.event.importPreparing': '正在准备导入数据',
     'workspace.task.event.batchExecuted': '已执行批量导入：{1} 条',
   },
   en: {
@@ -33,6 +34,10 @@ const translate = (language: keyof typeof translations) =>
 const created = event('TASK_CREATED', 'Task created');
 assert.equal(formatTaskEventMessage(created, translate('zh')), '任务已创建');
 assert.equal(formatTaskEventMessage(created, translate('en')), 'Task created');
+assert.equal(
+  formatTaskEventMessage(event('IMPORT_PREPARING', 'Preparing data import'), translate('zh')),
+  '正在准备导入数据',
+);
 assert.equal(
   formatTaskEventMessage(event('BATCH_EXECUTED', 'Executing batch insert: 120'), translate('zh')),
   '已执行批量导入：120 条',

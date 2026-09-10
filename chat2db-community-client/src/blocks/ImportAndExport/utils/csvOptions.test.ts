@@ -10,6 +10,8 @@ import {
 } from './csvOptions';
 import { ImportExportFileType } from '@/constants/importExport';
 
+assert.equal(DEFAULT_CSV_OPTIONS.encoding, 'AUTO');
+
 const options = {
   ...DEFAULT_CSV_OPTIONS,
   encoding: 'AUTO',

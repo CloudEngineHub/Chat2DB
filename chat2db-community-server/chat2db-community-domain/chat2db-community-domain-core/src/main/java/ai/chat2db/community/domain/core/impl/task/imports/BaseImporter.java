@@ -37,6 +37,7 @@ public abstract class BaseImporter implements IImportStrategy {
                             spec.getTarget().getTableName()));
             context.checkCancelled();
             context.reportProgress(20, TaskStage.READING.name(), "Target table metadata loaded");
+            context.logInfo(TaskEventCode.TARGET_METADATA_LOADED.name(), "Target table metadata loaded");
             context.logInfo(TaskEventCode.FILE_READ_STARTED.name(), "Reading import file");
             doImportData(spec, context, tableColumns);
             context.logInfo(TaskEventCode.FILE_READ_COMPLETED.name(), "Import file read completed");
