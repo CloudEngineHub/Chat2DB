@@ -48,11 +48,11 @@ assert.deepEqual(
 
 assert.throws(
   () => validateCsvOptions({ ...options, delimiter: '"' }),
-  /Unsupported CSV option combination/,
+  (error: unknown) => (error as { errorCode?: string }).errorCode === 'import.preview.invalidCsvOptions',
   'delimiter cannot match quote',
 );
 assert.throws(
   () => validateCsvOptions({ ...options, escape: '\n' }),
-  /Unsupported CSV option combination/,
+  (error: unknown) => (error as { errorCode?: string }).errorCode === 'import.preview.invalidCsvOptions',
   'escape cannot be a line break',
 );

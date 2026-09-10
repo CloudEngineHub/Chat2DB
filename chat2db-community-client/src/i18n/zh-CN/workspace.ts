@@ -322,6 +322,7 @@ export default {
   'workspace.importExport.duplicateSourceColumns': '导入文件包含重复的源字段',
   'workspace.importExport.csvOptions': 'CSV 选项',
   'workspace.importExport.csvFormat': 'CSV 格式',
+  'workspace.importExport.invalidCsvOptions': '当前 CSV 选项组合不受支持，请检查分隔符、限定符和转义方式',
   'workspace.importExport.encoding': '编码',
   'workspace.importExport.delimiter': '分隔符',
   'workspace.importExport.quote': '引号字符',

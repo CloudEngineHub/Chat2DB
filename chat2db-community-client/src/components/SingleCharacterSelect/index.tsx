@@ -14,6 +14,16 @@ export interface SingleCharacterSelectProps {
   onChange: (value: string) => void;
 }
 
+export const buildSingleCharacterOptions = (
+  value: string,
+  options: SingleCharacterSelectProps['options'],
+  allowCustom: boolean,
+  customOptionLabel: SingleCharacterSelectProps['customOptionLabel'],
+) =>
+  options.some((option) => option.value === value) || !allowCustom
+    ? options
+    : [...options, { value, label: customOptionLabel(value) }];
+
 const SingleCharacterSelect = ({
   label,
   value,
@@ -33,7 +43,7 @@ const SingleCharacterSelect = ({
     setCustomValue(preset ? '' : value);
   }, [preset, value]);
 
-  const selectOptions = preset || !allowCustom ? options : [...options, { value, label: customOptionLabel(value) }];
+  const selectOptions = buildSingleCharacterOptions(value, options, allowCustom, customOptionLabel);
 
   return (
     <div className={className}>

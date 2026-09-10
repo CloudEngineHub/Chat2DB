@@ -331,6 +331,7 @@ export default {
   'workspace.importExport.duplicateSourceColumns': '가져오기 파일에 중복된 소스 필드가 있습니다',
   'workspace.importExport.csvOptions': 'CSV 옵션',
   'workspace.importExport.csvFormat': 'CSV 형식',
+  'workspace.importExport.invalidCsvOptions': '이 CSV 옵션 조합은 지원되지 않습니다. 구분자, 한정자 및 이스케이프 설정을 확인하세요.',
   'workspace.importExport.encoding': '인코딩',
   'workspace.importExport.delimiter': '구분 기호',
   'workspace.importExport.quote': '따옴표 문자',

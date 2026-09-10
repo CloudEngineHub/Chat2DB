@@ -26,6 +26,8 @@ import java.util.Objects;
 public final class CsvParser {
 
     static final String DEFAULT_ENCODING = CsvOptions.DEFAULT_ENCODING;
+    private static final List<String> AUTO_ENCODINGS = List.of(
+            CsvOptions.DEFAULT_ENCODING, "GB18030", "windows-1252", "ISO-8859-1");
     private final CsvOptions options;
     private final char delimiter;
     private final char quote;
@@ -64,14 +66,7 @@ public final class CsvParser {
         if (!CsvOptions.AUTO_ENCODING.equals(options.getEncoding()) || hasBom(path)) {
             return parseOnce(path, limit);
         }
-        try {
-            return withEncoding(CsvOptions.DEFAULT_ENCODING).parseOnce(path, limit);
-        } catch (BusinessException e) {
-            if (!"import.preview.invalidEncodingLine".equals(e.getCode())) {
-                throw e;
-            }
-            return withEncoding("GB18030").parseOnce(path, limit);
-        }
+        return parseWithAutoEncoding(path, limit);
     }
 
     /** Validates the complete file, then streams rows without retaining them in memory. */
@@ -87,18 +82,31 @@ public final class CsvParser {
             parseOnce(path, Integer.MAX_VALUE, ignored -> { }, cancellationChecker);
             return this;
         }
-        CsvParser utf8Parser = withEncoding(CsvOptions.DEFAULT_ENCODING);
-        try {
-            utf8Parser.parseOnce(path, Integer.MAX_VALUE, ignored -> { }, cancellationChecker);
-            return utf8Parser;
-        } catch (BusinessException e) {
-            if (!"import.preview.invalidEncodingLine".equals(e.getCode())) {
-                throw e;
+        for (String encoding : AUTO_ENCODINGS) {
+            CsvParser candidate = withEncoding(encoding);
+            try {
+                candidate.parseOnce(path, Integer.MAX_VALUE, ignored -> { }, cancellationChecker);
+                return candidate;
+            } catch (BusinessException e) {
+                if (!"import.preview.invalidEncodingLine".equals(e.getCode())) {
+                    throw e;
+                }
             }
-            CsvParser gb18030Parser = withEncoding("GB18030");
-            gb18030Parser.parseOnce(path, Integer.MAX_VALUE, ignored -> { }, cancellationChecker);
-            return gb18030Parser;
         }
+        throw new BusinessException("import.preview.invalidEncoding", new Object[]{CsvOptions.AUTO_ENCODING});
+    }
+
+    private CsvResult parseWithAutoEncoding(Path path, int limit) {
+        for (String encoding : AUTO_ENCODINGS) {
+            try {
+                return withEncoding(encoding).parseOnce(path, limit);
+            } catch (BusinessException e) {
+                if (!"import.preview.invalidEncodingLine".equals(e.getCode())) {
+                    throw e;
+                }
+            }
+        }
+        throw new BusinessException("import.preview.invalidEncoding", new Object[]{CsvOptions.AUTO_ENCODING});
     }
 
     private CsvResult parseOnce(Path path, int limit) {

@@ -333,6 +333,7 @@ export default {
   'workspace.importExport.duplicateSourceColumns': 'インポートファイルに重複したソースフィールドがあります',
   'workspace.importExport.csvOptions': 'CSV オプション',
   'workspace.importExport.csvFormat': 'CSV 形式',
+  'workspace.importExport.invalidCsvOptions': 'この CSV オプションの組み合わせはサポートされていません。区切り文字、限定符、エスケープを確認してください。',
   'workspace.importExport.encoding': 'エンコーディング',
   'workspace.importExport.delimiter': '区切り文字',
   'workspace.importExport.quote': '引用符',

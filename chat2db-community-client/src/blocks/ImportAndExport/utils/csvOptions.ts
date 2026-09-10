@@ -1,5 +1,5 @@
 import { ICsvOptions } from '@/service/sql';
-import { ImportExportFileType } from '@/constants/importExport';
+import { ImportExportFileType, ImportPreviewErrorCode } from '@/constants/importExport';
 
 export const DEFAULT_CSV_OPTIONS: ICsvOptions = {
   encoding: 'AUTO',
@@ -19,6 +19,15 @@ export const DEFAULT_CSV_OPTIONS: ICsvOptions = {
   timeDelimiter: ':',
   decimalSymbol: '.',
 };
+
+export class CsvOptionsValidationError extends Error {
+  readonly errorCode = ImportPreviewErrorCode.INVALID_CSV_OPTIONS;
+
+  constructor() {
+    super();
+    this.name = 'CsvOptionsValidationError';
+  }
+}
 
 const SUPPORTED_NEWLINES = ['LF', 'CRLF', 'CR'];
 const SUPPORTED_DATE_ORDERS = ['YMD', 'YDM', 'MDY', 'MYD', 'DMY', 'DYM'];
@@ -75,7 +84,7 @@ export function validateCsvOptions(options: ICsvOptions): ICsvOptions {
     normalized.timeDelimiter.length !== 1 ||
     !['.', ','].includes(normalized.decimalSymbol)
   ) {
-    throw new Error('Unsupported CSV option combination');
+    throw new CsvOptionsValidationError();
   }
   return normalized;
 }

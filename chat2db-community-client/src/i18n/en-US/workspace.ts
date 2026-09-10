@@ -333,6 +333,7 @@ export default {
   'workspace.importExport.duplicateSourceColumns': 'The import file contains duplicate source fields',
   'workspace.importExport.csvOptions': 'CSV options',
   'workspace.importExport.csvFormat': 'CSV format',
+  'workspace.importExport.invalidCsvOptions': 'This CSV option combination is not supported. Check the delimiter, qualifier, and escape settings.',
   'workspace.importExport.encoding': 'Encoding',
   'workspace.importExport.delimiter': 'Delimiter',
   'workspace.importExport.quote': 'Quote character',

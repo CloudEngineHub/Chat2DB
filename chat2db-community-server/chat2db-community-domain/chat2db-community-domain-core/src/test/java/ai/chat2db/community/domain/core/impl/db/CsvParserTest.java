@@ -131,6 +131,28 @@ class CsvParserTest {
     }
 
     @Test
+    void autoDetectionFallsBackToLatin1(@TempDir Path directory) throws Exception {
+        Path path = directory.resolve("latin1.csv");
+        Files.write(path, "name\nn café\n".getBytes(Charset.forName("ISO-8859-1")));
+
+        CsvParser.CsvResult result = new CsvParser(CsvOptions.builder().encoding("AUTO").build())
+                .parse(path, 50);
+
+        assertEquals("n café", result.rows().get(1).get(0));
+    }
+
+    @Test
+    void autoDetectionFallsBackToWindows1252(@TempDir Path directory) throws Exception {
+        Path path = directory.resolve("windows-1252.csv");
+        Files.write(path, "name\n“quoted”\n".getBytes(Charset.forName("windows-1252")));
+
+        CsvParser.CsvResult result = new CsvParser(CsvOptions.builder().encoding("AUTO").build())
+                .parse(path, 50);
+
+        assertEquals("“quoted”", result.rows().get(1).get(0));
+    }
+
+    @Test
     void supportsBackslashEscapedQuotesWhenConfigured() {
         CsvParser parser = new CsvParser("UTF-8", ",", "\"", "\\", true, true);
 
