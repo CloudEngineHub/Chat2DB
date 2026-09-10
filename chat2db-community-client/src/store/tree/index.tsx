@@ -26,7 +26,7 @@ import {
 import { DataSourceIdentityColorPatch, patchDataSourceIdentityTree } from './dataSourceIdentity';
 import { collectDataSourceNodes, pruneDataSourceRuntimeAvailability } from './dataSourceList';
 import { shouldReuseTreeNodeChildren } from './treeNodeLoadState';
-import { runMutationRefreshQuietly } from './dataSourceMutationRefresh';
+import { hydrateDataSourceAfterMutation } from './dataSourceMutationRefresh';
 import { applyHiddenTreeNodeChanges, HiddenTreeNodeStateCoordinator } from './hiddenTreeNodeState';
 import { LatestLoadCoordinator, loadNamespaceTree } from './loadNamespaceTree';
 import {
@@ -162,7 +162,7 @@ export interface TreeAction {
   updateOriginalTitleByNodeId: (nodeKey: string, originalTitle: string) => void;
   // Get the child nodes under a certain node. If the child node is undefined, request the child node.
   getChildrenByNodeId: (nodeId: string) => TreeNodeData[];
-  initHiddenTreeNodeIds: (force?: boolean) => void;
+  initHiddenTreeNodeIds: (force?: boolean) => Promise<boolean>;
   addOrDeleteShowTreeNodeIds: (
     dataSourceId: number,
     changedKeys?: {
@@ -220,7 +220,7 @@ export const createTreeAction: StateCreator<TreeStore, [['zustand/devtools', nev
       refreshRoot: () => get().getTreeData({ refresh: true }),
     }),
   refreshDataSourceAfterMutation: async (dataSourceId) => {
-    await runMutationRefreshQuietly(dataSourceId, {
+    await hydrateDataSourceAfterMutation(dataSourceId, {
       refreshTreeData: () => get().getTreeData({ refresh: true, throwOnError: true }),
       getDataSourceList: () => get().dataSourceList,
       setSelectedKeys: get().setSelectedKeys,
@@ -254,7 +254,8 @@ export const createTreeAction: StateCreator<TreeStore, [['zustand/devtools', nev
         priority: refresh ? 1 : 0,
       },
       async (isCurrent): Promise<RootTreeLoadResult> => {
-        get().initHiddenTreeNodeIds(refresh);
+        void get().initHiddenTreeNodeIds(refresh)
+          .catch(() => undefined);
         const result = await loadNamespaceTree(() => connectionService.getNamespaceList({ refresh }));
         if (!isCurrent()) {
           return { committed: false };
@@ -803,27 +804,11 @@ export const createTreeAction: StateCreator<TreeStore, [['zustand/devtools', nev
     const curNode = findNode(nodeId, newTreeData);
     return curNode?.children || [];
   },
-  initHiddenTreeNodeIds: (force = false) => {
-    if (force) {
-      // Another window may have changed the persisted hidden-node config;
-      // a manual refresh must re-read it instead of keeping this window's
-      // lifetime cache.
-      hiddenTreeNodeStateCoordinator.reset();
-      set({ hiddenTreeNodeIds: null });
-    }
-    if (get().hiddenTreeNodeIds !== null) {
-      return;
-    }    void hiddenTreeNodeStateCoordinator
-      .initialize(
-        () => dataSourceTreeService.getTreeHiddenTreeNodeIds(),
-        (hiddenTreeNodeIds) => {
-          if (get().hiddenTreeNodeIds === null) {
-            set({ hiddenTreeNodeIds });
-          }
-        },
-      )
-      .catch(() => undefined);
-  },
+  initHiddenTreeNodeIds: (force = false) => hiddenTreeNodeStateCoordinator.initialize(
+    () => dataSourceTreeService.getTreeHiddenTreeNodeIds(),
+    (hiddenTreeNodeIds) => set({ hiddenTreeNodeIds }),
+    force,
+  ),
   addOrDeleteShowTreeNodeIds: (
     dataSourceId: number,
     changedKeys?: {
@@ -833,29 +818,21 @@ export const createTreeAction: StateCreator<TreeStore, [['zustand/devtools', nev
   ) => {
     const lifecycleVersion = treeStoreLifecycleVersion;
     const applyChanges = async () => {
-      await hiddenTreeNodeStateCoordinator.initialize(
-        () => dataSourceTreeService.getTreeHiddenTreeNodeIds(),
-        (hiddenTreeNodeIds) => {
-          if (get().hiddenTreeNodeIds === null) {
-            set({ hiddenTreeNodeIds });
-          }
-        },
-      );
-      if (lifecycleVersion !== treeStoreLifecycleVersion) {
-        return;
-      }
-
-      const hiddenTreeNodeIds = get().hiddenTreeNodeIds || {};
-      const nextIds = applyHiddenTreeNodeChanges(hiddenTreeNodeIds[dataSourceId] || [], changedKeys);
-      set({
-        hiddenTreeNodeIds: {
-          ...hiddenTreeNodeIds,
-          [dataSourceId]: nextIds,
-        },
+      await get().initHiddenTreeNodeIds();
+      await hiddenTreeNodeStateCoordinator.write(async () => {
+        if (lifecycleVersion !== treeStoreLifecycleVersion) {
+          return;
+        }
+        const hiddenTreeNodeIds = get().hiddenTreeNodeIds || {};
+        const nextIds = applyHiddenTreeNodeChanges(hiddenTreeNodeIds[dataSourceId] || [], changedKeys);
+        set({
+          hiddenTreeNodeIds: {
+            ...hiddenTreeNodeIds,
+            [dataSourceId]: nextIds,
+          },
+        });
+        await dataSourceTreeService.updateHiddenTreeNodeIds(dataSourceId, nextIds);
       });
-      await hiddenTreeNodeStateCoordinator.write(() =>
-        dataSourceTreeService.updateHiddenTreeNodeIds(dataSourceId, nextIds),
-      );
     };
 
     void applyChanges()

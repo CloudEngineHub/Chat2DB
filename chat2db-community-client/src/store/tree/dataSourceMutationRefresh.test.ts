@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
-import {
-  hydrateDataSourceAfterMutation,
-  runMutationRefreshQuietly,
-} from './dataSourceMutationRefresh';
+import type { TreeNodeData } from '@/typings';
+import { hydrateDataSourceAfterMutation } from './dataSourceMutationRefresh';
 
 async function testUsesCanonicalNodeLoadedAfterMutation() {
   const events: string[] = [];
@@ -13,8 +11,8 @@ async function testUsesCanonicalNodeLoadedAfterMutation() {
       storageType: 'CLOUD',
       hasPermission: true,
     },
-  } as any;
-  let dataSourceList: any[] | null = null;
+  } as TreeNodeData;
+  let dataSourceList: TreeNodeData[] | null = null;
 
   const result = await hydrateDataSourceAfterMutation(42, {
     refreshTreeData: async () => {
@@ -66,7 +64,7 @@ async function testStopsWhenRefreshIsNotCommitted() {
     extraParams: {
       dataSourceId: 42,
     },
-  } as any;
+  } as TreeNodeData;
 
   const result = await hydrateDataSourceAfterMutation(42, {
     refreshTreeData: async () => {
@@ -88,32 +86,7 @@ async function testStopsWhenRefreshIsNotCommitted() {
   assert.deepEqual(events, ['refresh']);
 }
 
-async function testPropagatesRefreshFailure() {
-  const events: string[] = [];
-  const refreshError = new Error('refresh failed');
-
-  await assert.rejects(
-    hydrateDataSourceAfterMutation(42, {
-      refreshTreeData: async () => {
-        events.push('refresh');
-        throw refreshError;
-      },
-      getDataSourceList: () => {
-        events.push('read');
-        return [];
-      },
-      setSelectedKeys: () => events.push('select'),
-      setScrollTargetKey: () => events.push('scroll'),
-      loadData: async () => {
-        events.push('load');
-      },
-    }),
-    (error) => error === refreshError,
-  );
-  assert.deepEqual(events, ['refresh']);
-}
-
-async function testQuietWrapperSwallowsRefreshFailureAfterSuccessfulSave() {
+async function testRefreshFailureDoesNotRejectSuccessfulSave() {
   const events: string[] = [];
   const originalWarn = console.warn;
   const warnings: unknown[] = [];
@@ -121,7 +94,7 @@ async function testQuietWrapperSwallowsRefreshFailureAfterSuccessfulSave() {
     warnings.push(args[0]);
   };
   try {
-    const result = await runMutationRefreshQuietly(42, {
+    const result = await hydrateDataSourceAfterMutation(42, {
       refreshTreeData: async () => {
         events.push('refresh');
         throw new Error('refresh failed');
@@ -145,35 +118,39 @@ async function testQuietWrapperSwallowsRefreshFailureAfterSuccessfulSave() {
   }
 }
 
-async function testQuietWrapperStillHydratesOnSuccess() {
-  const canonicalNode = {
-    key: 'dataSource_42',
-    extraParams: { dataSourceId: 42 },
-  } as any;
-
-  const result = await runMutationRefreshQuietly(42, {
-    refreshTreeData: async () => true,
-    getDataSourceList: () => [canonicalNode],
-    setSelectedKeys: () => undefined,
-    setScrollTargetKey: () => undefined,
-    loadData: async () => undefined,
-  });
-
-  assert.equal(result, canonicalNode);
+async function testChildLoadFailureDoesNotRejectSuccessfulSave() {
+  const events: string[] = [];
+  const canonicalNode = { key: 'dataSource_42', extraParams: { dataSourceId: 42 } };
+  const originalWarn = console.warn;
+  const error = new Error('child load failed');
+  const warnings: unknown[] = [];
+  console.warn = (_message, cause) => warnings.push(cause);
+  try {
+    const result = await hydrateDataSourceAfterMutation(42, {
+      refreshTreeData: async () => true,
+      getDataSourceList: () => [canonicalNode as TreeNodeData],
+      setSelectedKeys: () => events.push('select'),
+      setScrollTargetKey: () => events.push('scroll'),
+      loadData: async () => { throw error; },
+    });
+    assert.equal(result, null);
+    assert.deepEqual(events, ['select', 'scroll']);
+    assert.deepEqual(warnings, [error]);
+  } finally {
+    console.warn = originalWarn;
+  }
 }
 
-Promise.all([
-  testUsesCanonicalNodeLoadedAfterMutation(),
-  testDoesNotReuseSparseMutationNodeWhenRefreshMisses(),
-  testStopsWhenRefreshIsNotCommitted(),
-  testPropagatesRefreshFailure(),
-  testQuietWrapperSwallowsRefreshFailureAfterSuccessfulSave(),
-  testQuietWrapperStillHydratesOnSuccess(),
-])
-  .then(() => {
-    console.log('Data source mutation refresh tests passed');
-  })
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  });
+async function run() {
+  await testUsesCanonicalNodeLoadedAfterMutation();
+  await testDoesNotReuseSparseMutationNodeWhenRefreshMisses();
+  await testStopsWhenRefreshIsNotCommitted();
+  await testRefreshFailureDoesNotRejectSuccessfulSave();
+  await testChildLoadFailureDoesNotRejectSuccessfulSave();
+  console.log('Data source mutation refresh tests passed');
+}
+
+run().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

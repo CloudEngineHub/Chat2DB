@@ -13,38 +13,26 @@ export async function hydrateDataSourceAfterMutation(
   dataSourceId: number,
   dependencies: DataSourceMutationRefreshDependencies,
 ): Promise<TreeNodeData | null> {
-  const refreshed = await dependencies.refreshTreeData();
-  if (!refreshed) {
-    return null;
-  }
-
-  const dataSource =
-    dependencies
-      .getDataSourceList()
-      ?.find((node) => node.extraParams?.dataSourceId === dataSourceId) ?? null;
-  if (!dataSource) {
-    return null;
-  }
-
-  dependencies.setSelectedKeys([dataSource.key]);
-  dependencies.setScrollTargetKey(dataSource.key);
-  await dependencies.loadData(dataSource);
-  return dataSource;
-}
-
-/**
- * Runs the post-mutation refresh. The mutation itself already succeeded, so
- * a failed refresh is logged instead of rejecting into the caller's
- * save-failure handling (which would misreport the save as failed); the
- * tree simply stays stale until the next refresh.
- */
-export async function runMutationRefreshQuietly(
-  dataSourceId: number,
-  dependencies: DataSourceMutationRefreshDependencies,
-): Promise<TreeNodeData | null> {
   try {
-    return await hydrateDataSourceAfterMutation(dataSourceId, dependencies);
+    const refreshed = await dependencies.refreshTreeData();
+    if (!refreshed) {
+      return null;
+    }
+
+    const dataSource =
+      dependencies
+        .getDataSourceList()
+        ?.find((node) => node.extraParams?.dataSourceId === dataSourceId) ?? null;
+    if (!dataSource) {
+      return null;
+    }
+
+    dependencies.setSelectedKeys([dataSource.key]);
+    dependencies.setScrollTargetKey(dataSource.key);
+    await dependencies.loadData(dataSource);
+    return dataSource;
   } catch (error) {
+    // Saving already succeeded; a refresh failure must not be reported as a failed save.
     console.warn('Failed to refresh the datasource tree after a successful save', error);
     return null;
   }
