@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox, Collapse, Divider, Input, InputNumber, Modal, Select, Spin, Table, Tooltip } from 'antd';
+import { Button, Checkbox, Collapse, InputNumber, Modal, Select, Spin, Table, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { TriangleAlert } from 'lucide-react';
 import {
@@ -21,6 +21,7 @@ import { useStyles } from './style';
 import type { FileUrl } from '@/components/UploadLocalFile';
 import { stageSelectedImportFile } from './fileStaging';
 import LocalFileEncodingSelect from '@/components/LocalFileEncodingSelect';
+import SingleCharacterSelect from '@/components/SingleCharacterSelect';
 import {
   buildCsvOptionsForTaskSubmit,
   DEFAULT_CSV_OPTIONS,
@@ -36,77 +37,6 @@ interface IProps {
   file: FileUrl;
   onSubmitted: (taskId: number) => void;
 }
-
-interface CharacterOptionProps {
-  label: string;
-  value: string;
-  options: { value: string; label: string }[];
-  fieldClassName: string;
-  customInputClassName: string;
-  allowCustom?: boolean;
-  disabled?: boolean;
-  onChange: (value: string) => void;
-}
-
-const CharacterOption = ({
-  label,
-  value,
-  options,
-  fieldClassName,
-  customInputClassName,
-  allowCustom = true,
-  disabled,
-  onChange,
-}: CharacterOptionProps) => {
-  const preset = options.some((option) => option.value === value);
-  const [customValue, setCustomValue] = useState(preset ? '' : value);
-  useEffect(() => {
-    setCustomValue(preset ? '' : value);
-  }, [preset, value]);
-  const selectOptions =
-    preset || !allowCustom
-      ? options
-      : [...options, { value, label: i18n('workspace.importExport.customCharacterValue', value) }];
-
-  return (
-    <div className={fieldClassName}>
-      <span>{label}</span>
-      <Select
-        value={value}
-        options={selectOptions}
-        disabled={disabled}
-        onChange={onChange}
-        dropdownRender={
-          allowCustom
-            ? (menu) => (
-                <>
-                  {menu}
-                  <Divider style={{ margin: '4px 0' }} />
-                  <div className={customInputClassName} onMouseDown={(event) => event.stopPropagation()}>
-                    <Input
-                      aria-label={i18n('workspace.importExport.customCharacter')}
-                      maxLength={1}
-                      placeholder={i18n('workspace.importExport.customCharacter')}
-                      value={customValue}
-                      disabled={disabled}
-                      onKeyDown={(event) => event.stopPropagation()}
-                      onChange={(event) => {
-                        const nextValue = event.target.value;
-                        setCustomValue(nextValue);
-                        if (nextValue) {
-                          onChange(nextValue);
-                        }
-                      }}
-                    />
-                  </div>
-                </>
-              )
-            : undefined
-        }
-      />
-    </div>
-  );
-};
 
 /**
  * Database-independent import preview and column mapping. Loads a bounded preview of the
@@ -493,11 +423,13 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
                           }}
                         />
                       </div>
-                      <CharacterOption
+                      <SingleCharacterSelect
                         label={i18n('workspace.importExport.delimiter')}
                         value={csvOptions.delimiter}
-                        fieldClassName={styles.csvOptionField}
+                        className={styles.csvOptionField}
                         customInputClassName={styles.customCharacterInput}
+                        customOptionLabel={(value) => i18n('workspace.importExport.customCharacterValue', value)}
+                        customInputLabel={i18n('workspace.importExport.customCharacter')}
                         options={[
                           { value: ',', label: i18n('workspace.importExport.delimiterComma') },
                           { value: ';', label: i18n('workspace.importExport.delimiterSemicolon') },
@@ -506,11 +438,13 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
                         ]}
                         onChange={(delimiter) => setCsvOptions((current) => ({ ...current, delimiter }))}
                       />
-                      <CharacterOption
+                      <SingleCharacterSelect
                         label={i18n('workspace.importExport.textQualifier')}
                         value={csvOptions.quote}
-                        fieldClassName={styles.csvOptionField}
+                        className={styles.csvOptionField}
                         customInputClassName={styles.customCharacterInput}
+                        customOptionLabel={(value) => i18n('workspace.importExport.customCharacterValue', value)}
+                        customInputLabel={i18n('workspace.importExport.customCharacter')}
                         options={[
                           { value: '"', label: i18n('workspace.importExport.quoteDouble') },
                           { value: "'", label: i18n('workspace.importExport.quoteSingle') },
@@ -525,11 +459,13 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
                           }))
                         }
                       />
-                      <CharacterOption
+                      <SingleCharacterSelect
                         label={i18n('workspace.importExport.escapeMethod')}
                         value={csvOptions.escape}
-                        fieldClassName={styles.csvOptionField}
+                        className={styles.csvOptionField}
                         customInputClassName={styles.customCharacterInput}
+                        customOptionLabel={(value) => i18n('workspace.importExport.customCharacterValue', value)}
+                        customInputLabel={i18n('workspace.importExport.customCharacter')}
                         options={[
                           { value: csvOptions.quote, label: i18n('workspace.importExport.escapeRepeatedQualifier') },
                           { value: '\\', label: i18n('workspace.importExport.escapeBackslash') },
@@ -644,11 +580,13 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
                           onChange={(dateTimeOrder) => setCsvOptions((current) => ({ ...current, dateTimeOrder }))}
                         />
                       </label>
-                      <CharacterOption
+                      <SingleCharacterSelect
                         label={i18n('workspace.importExport.dateDelimiter')}
                         value={csvOptions.dateDelimiter}
-                        fieldClassName={styles.csvOptionField}
+                        className={styles.csvOptionField}
                         customInputClassName={styles.customCharacterInput}
+                        customOptionLabel={(value) => i18n('workspace.importExport.customCharacterValue', value)}
+                        customInputLabel={i18n('workspace.importExport.customCharacter')}
                         options={[
                           { value: '-', label: i18n('workspace.importExport.delimiterDash') },
                           { value: '/', label: i18n('workspace.importExport.delimiterSlash') },
@@ -661,11 +599,13 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
                           }))
                         }
                       />
-                      <CharacterOption
+                      <SingleCharacterSelect
                         label={i18n('workspace.importExport.yearDelimiter')}
                         value={csvOptions.yearDelimiter}
-                        fieldClassName={styles.csvOptionField}
+                        className={styles.csvOptionField}
                         customInputClassName={styles.customCharacterInput}
+                        customOptionLabel={(value) => i18n('workspace.importExport.customCharacterValue', value)}
+                        customInputLabel={i18n('workspace.importExport.customCharacter')}
                         options={[
                           { value: '-', label: i18n('workspace.importExport.delimiterDash') },
                           { value: '/', label: i18n('workspace.importExport.delimiterSlash') },
@@ -673,22 +613,26 @@ const ImportMappingContent = ({ dataSourceId, databaseName, schemaName, tableNam
                         ]}
                         onChange={(yearDelimiter) => setCsvOptions((current) => ({ ...current, yearDelimiter }))}
                       />
-                      <CharacterOption
+                      <SingleCharacterSelect
                         label={i18n('workspace.importExport.timeDelimiter')}
                         value={csvOptions.timeDelimiter}
-                        fieldClassName={styles.csvOptionField}
+                        className={styles.csvOptionField}
                         customInputClassName={styles.customCharacterInput}
+                        customOptionLabel={(value) => i18n('workspace.importExport.customCharacterValue', value)}
+                        customInputLabel={i18n('workspace.importExport.customCharacter')}
                         options={[
                           { value: ':', label: i18n('workspace.importExport.delimiterColon') },
                           { value: '.', label: i18n('workspace.importExport.delimiterDot') },
                         ]}
                         onChange={(timeDelimiter) => setCsvOptions((current) => ({ ...current, timeDelimiter }))}
                       />
-                      <CharacterOption
+                      <SingleCharacterSelect
                         label={i18n('workspace.importExport.decimalSymbol')}
                         value={csvOptions.decimalSymbol}
-                        fieldClassName={styles.csvOptionField}
+                        className={styles.csvOptionField}
                         customInputClassName={styles.customCharacterInput}
+                        customOptionLabel={(value) => i18n('workspace.importExport.customCharacterValue', value)}
+                        customInputLabel={i18n('workspace.importExport.customCharacter')}
                         allowCustom={false}
                         options={[
                           { value: '.', label: i18n('workspace.importExport.delimiterDot') },
