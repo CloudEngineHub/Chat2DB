@@ -2,6 +2,9 @@ package ai.chat2db.community.domain.core.impl.task;
 
 import ai.chat2db.community.domain.api.model.task.ArtifactDraft;
 import ai.chat2db.community.domain.api.model.task.TaskConstants;
+import ai.chat2db.community.domain.api.model.task.Task;
+import ai.chat2db.community.domain.api.service.task.TaskStorage;
+import ai.chat2db.community.tools.exception.DataNotFoundException;
 import ai.chat2db.community.tools.exception.BusinessException;
 import ai.chat2db.community.tools.util.ConfigUtils;
 import cn.hutool.core.io.FileUtil;
@@ -35,7 +38,7 @@ public class ArtifactService {
 
     private final File deletionJournalFile;
 
-    private List<StagedArtifactDeletion> deletionJournal = new ArrayList<>();
+    static final int MAX_DELETION_ATTEMPTS = 3;
 
     public ArtifactService() {
         this(new File(ConfigUtils.getEnvBasePath(), "task-artifact-deletions.json"));
@@ -43,7 +46,6 @@ public class ArtifactService {
 
     ArtifactService(File deletionJournalFile) {
         this.deletionJournalFile = deletionJournalFile;
-        loadDeletionJournal();
     }
 
     ArtifactDraft createDraft(Long taskId, String outputDirectory, String fileName, String mediaType) {
@@ -114,167 +116,123 @@ public class ArtifactService {
         }
     }
 
-    PublishedArtifactDeletion stagePublishedDeletion(Long taskId, String artifactId) {
-        if (StringUtils.isBlank(artifactId)) {
-            return PublishedArtifactDeletion.empty();
+    synchronized void deleteTask(Task task, TaskStorage storage) {
+        if (storage.get(task.getId()).isEmpty()) {
+            throw new DataNotFoundException();
         }
-        Path original = Path.of(artifactId).toAbsolutePath().normalize();
-        File artifact = resolvePublishedArtifact(taskId, artifactId);
-        if (!original.equals(artifact.toPath())) {
-            return new PublishedArtifactDeletion(original, artifact.toPath());
-        }
-        if (!Files.exists(original)) {
-            return PublishedArtifactDeletion.empty();
-        }
-        if (!Files.isRegularFile(original)) {
-            throw artifactDeletionFailure(artifactId, null);
-        }
-        Path staged = original.resolveSibling("." + original.getFileName()
-                + DELETION_FILE_MARKER + UUID.randomUUID());
-        StagedArtifactDeletion journalEntry = new StagedArtifactDeletion(taskId,
-                original.toString(), staged.toString());
         try {
-            // Publish the recovery intent before moving the artifact. A crash
-            // can then leave either an untouched artifact plus a harmless
-            // journal entry, or a staged artifact that startup can recover.
-            recordStagedDeletion(journalEntry);
-            try {
-                move(original, staged);
-            } catch (Exception moveFailure) {
+            List<PendingTaskDeletion> pending = readPendingDeletions();
+            PendingTaskDeletion deletion = pending.stream()
+                    .filter(entry -> Objects.equals(entry.taskId(), task.getId())).findFirst().orElse(null);
+            if (deletion == null) {
+                Path original = StringUtils.isBlank(task.getArtifactId()) ? null
+                        : Path.of(task.getArtifactId()).toAbsolutePath().normalize();
+                String staged = original == null ? null : original.resolveSibling("." + original.getFileName()
+                        + DELETION_FILE_MARKER + UUID.randomUUID()).toString();
+                deletion = new PendingTaskDeletion(task.getId(), original == null ? null : original.toString(),
+                        staged, 0, null);
+                pending.add(deletion);
+            }
+            completeDeletion(pending, deletion, storage);
+        } catch (Exception e) {
+            throw artifactDeletionFailure(task.getArtifactId(), e);
+        }
+    }
+
+    synchronized void retryPendingDeletions(TaskStorage storage) {
+        try {
+            List<PendingTaskDeletion> pending = readPendingDeletions();
+            for (PendingTaskDeletion deletion : List.copyOf(pending)) {
                 try {
-                    forgetStagedDeletion(staged);
-                } catch (Exception journalFailure) {
-                    moveFailure.addSuppressed(journalFailure);
-                }
-                throw moveFailure;
-            }
-            return new PublishedArtifactDeletion(original, staged);
-        } catch (Exception e) {
-            throw artifactDeletionFailure(artifactId, e);
-        }
-    }
-
-    File resolvePublishedArtifact(Long taskId, String artifactId) {
-        Path original = Path.of(artifactId).toAbsolutePath().normalize();
-        for (StagedArtifactDeletion pending : loadStagedDeletions()) {
-            if (Objects.equals(taskId, pending.taskId()) && original.toString().equals(pending.originalPath())) {
-                Path staged = Path.of(pending.stagedPath());
-                if (Files.exists(staged)) {
-                    return staged.toFile();
-                }
-            }
-        }
-        return original.toFile();
-    }
-
-    void commitPublishedDeletion(PublishedArtifactDeletion deletion) {
-        if (deletion == null || deletion.stagedPath() == null) {
-            return;
-        }
-        try {
-            Files.deleteIfExists(deletion.stagedPath());
-        } catch (Exception e) {
-            throw artifactDeletionFailure(deletion.originalPath().toString(), e);
-        }
-        try {
-            forgetStagedDeletion(deletion.stagedPath());
-        } catch (Exception e) {
-            // The artifact is gone; rolling the task back can no longer restore it.
-            log.warn("Could not clear committed artifact deletion {}; retry on startup", deletion, e);
-        }
-    }
-
-    void restorePublishedDeletion(PublishedArtifactDeletion deletion) {
-        if (deletion == null || deletion.stagedPath() == null) {
-            return;
-        }
-        try {
-            if (Files.exists(deletion.stagedPath())) {
-                // ATOMIC_MOVE may replace an existing export even without REPLACE_EXISTING.
-                Files.move(deletion.stagedPath(), deletion.originalPath());
-            }
-            forgetStagedDeletion(deletion.stagedPath());
-        } catch (Exception e) {
-            throw artifactDeletionFailure(deletion.originalPath().toString(), e);
-        }
-    }
-
-    /**
-     * Startup replay of staged deletions left behind by a crash: when the task
-     * record survived, the artifact must be moved back to its published name;
-     * when the task record is gone the deletion had committed, so the staged
-     * file is removed. The journal entry is cleared once applied.
-     */
-    void recoverStagedDeletion(StagedArtifactDeletion staged, boolean taskExists) {
-        PublishedArtifactDeletion deletion = new PublishedArtifactDeletion(
-                Path.of(staged.originalPath()), Path.of(staged.stagedPath()));
-        if (taskExists) {
-            restorePublishedDeletion(deletion);
-        } else {
-            commitPublishedDeletion(deletion);
-        }
-    }
-
-    private synchronized void recordStagedDeletion(StagedArtifactDeletion staged) throws IOException {
-        List<StagedArtifactDeletion> updated = new ArrayList<>(deletionJournal);
-        updated.add(staged);
-        writeDeletionJournal(updated);
-        deletionJournal = updated;
-    }
-
-    private synchronized void forgetStagedDeletion(Path stagedPath) throws IOException {
-        String path = stagedPath.toAbsolutePath().normalize().toString();
-        List<StagedArtifactDeletion> updated = deletionJournal.stream()
-                .filter(staged -> !path.equals(staged.stagedPath())).toList();
-        if (updated.size() != deletionJournal.size()) {
-            writeDeletionJournal(updated);
-            deletionJournal = updated;
-        }
-    }
-
-    synchronized List<StagedArtifactDeletion> loadStagedDeletions() {
-        return List.copyOf(deletionJournal);
-    }
-
-    private void loadDeletionJournal() {
-        if (!deletionJournalFile.isFile()) {
-            return;
-        }
-        try {
-            for (String line : FileUtil.readUtf8Lines(deletionJournalFile)) {
-                if (StringUtils.isBlank(line)) {
-                    continue;
-                }
-                try {
-                    StagedArtifactDeletion staged = JSON.parseObject(line, StagedArtifactDeletion.class);
-                    if (staged != null && StringUtils.isNotBlank(staged.stagedPath())) {
-                        deletionJournal.add(staged);
+                    if (storage.get(deletion.taskId()).isEmpty() && (deletion.stagedPath() == null
+                            || Files.notExists(Path.of(deletion.stagedPath())))) {
+                        pending.remove(deletion);
+                        writePendingDeletions(pending);
+                    } else if (deletion.attempts() < MAX_DELETION_ATTEMPTS) {
+                        completeDeletion(pending, deletion, storage);
                     }
-                } catch (Exception malformed) {
-                    // One corrupt line must not orphan the staged deletions
-                    // recorded after it.
-                    log.warn("Skipping malformed task artifact deletion journal entry: {}", line, malformed);
+                } catch (Exception e) {
+                    log.error("Could not complete pending deletion for task {}", deletion.taskId(), e);
                 }
             }
         } catch (Exception e) {
-            log.error("Could not load task artifact deletion journal {}", deletionJournalFile, e);
+            log.error("Could not read pending task deletions from {}", deletionJournalFile, e);
         }
     }
 
-    private void writeDeletionJournal(List<StagedArtifactDeletion> entries) throws IOException {
-        StringBuilder content = new StringBuilder();
-        for (StagedArtifactDeletion staged : entries) {
-            content.append(JSON.toJSONString(staged)).append(System.lineSeparator());
-        }
-        FileUtil.mkParentDirs(deletionJournalFile);
-        File temporary = new File(deletionJournalFile.getParentFile(),
-                deletionJournalFile.getName() + DRAFT_FILE_SUFFIX);
-        FileUtil.writeUtf8String(content.toString(), temporary);
+    private void completeDeletion(List<PendingTaskDeletion> pending, PendingTaskDeletion deletion,
+            TaskStorage storage) throws IOException {
+        int index = pending.indexOf(deletion);
+        PendingTaskDeletion attempted = new PendingTaskDeletion(deletion.taskId(), deletion.originalPath(),
+                deletion.stagedPath(), deletion.attempts() + 1, null);
+        pending.set(index, attempted);
+        // Persist the intent and attempt count before touching either the task or its artifact.
+        writePendingDeletions(pending);
         try {
-            Files.move(temporary.toPath(), deletionJournalFile.toPath(), StandardCopyOption.ATOMIC_MOVE,
+            Path staged = deletion.stagedPath() == null ? null : Path.of(deletion.stagedPath());
+            if (storage.get(deletion.taskId()).isPresent()) {
+                if (staged != null && Files.notExists(staged)) {
+                    Path original = Path.of(deletion.originalPath());
+                    if (Files.exists(original)) {
+                        if (!Files.isRegularFile(original)) {
+                            throw new IOException("Task artifact is not a regular file: " + original);
+                        }
+                        Files.move(original, staged);
+                    }
+                }
+                if (!storage.deleteTerminalTask(deletion.taskId(), null)) {
+                    throw new IOException("Task is not terminal: " + deletion.taskId());
+                }
+            }
+            // Once the task record is gone, its original path may belong to a newer export.
+            if (staged != null) {
+                Files.deleteIfExists(staged);
+            }
+        } catch (Exception e) {
+            pending.set(index, new PendingTaskDeletion(attempted.taskId(), attempted.originalPath(),
+                    attempted.stagedPath(), attempted.attempts(), e.toString()));
+            try {
+                writePendingDeletions(pending);
+            } catch (Exception writeFailure) {
+                e.addSuppressed(writeFailure);
+            }
+            throw e;
+        }
+        pending.remove(index);
+        writePendingDeletions(pending);
+    }
+
+    synchronized File resolvePublishedArtifact(Long taskId, String artifactId) {
+        for (PendingTaskDeletion deletion : readPendingDeletions()) {
+            if (Objects.equals(taskId, deletion.taskId()) && deletion.stagedPath() != null
+                    && Files.exists(Path.of(deletion.stagedPath()))) {
+                return new File(deletion.stagedPath());
+            }
+        }
+        return new File(artifactId);
+    }
+
+    private List<PendingTaskDeletion> readPendingDeletions() {
+        if (!deletionJournalFile.exists()) {
+            return new ArrayList<>();
+        }
+        List<PendingTaskDeletion> pending = JSON.parseArray(
+                FileUtil.readUtf8String(deletionJournalFile), PendingTaskDeletion.class);
+        if (pending == null || pending.stream().anyMatch(entry -> entry == null || entry.taskId() == null)) {
+            throw new IllegalStateException("Invalid task deletion queue: " + deletionJournalFile);
+        }
+        return pending;
+    }
+
+    private void writePendingDeletions(List<PendingTaskDeletion> pending) throws IOException {
+        FileUtil.mkParentDirs(deletionJournalFile);
+        Path temporary = deletionJournalFile.toPath().resolveSibling(deletionJournalFile.getName() + DRAFT_FILE_SUFFIX);
+        Files.writeString(temporary, JSON.toJSONString(pending));
+        try {
+            Files.move(temporary, deletionJournalFile.toPath(), StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING);
         } catch (AtomicMoveNotSupportedException e) {
-            Files.move(temporary.toPath(), deletionJournalFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            Files.move(temporary, deletionJournalFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
@@ -355,30 +313,11 @@ public class ArtifactService {
         }
     }
 
-    private void move(Path source, Path target) throws IOException {
-        try {
-            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.move(source, target);
-        }
-    }
-
     private BusinessException artifactDeletionFailure(String artifactId, Exception cause) {
         return new BusinessException(TaskConstants.DELETE_ARTIFACT_FAILED_MESSAGE_CODE,
                 new Object[]{artifactId}, cause);
     }
 
-    record PublishedArtifactDeletion(Path originalPath, Path stagedPath) {
-
-        private static PublishedArtifactDeletion empty() {
-            return new PublishedArtifactDeletion(null, null);
-        }
-    }
-
-    /**
-     * Journal entry for a staged artifact deletion; survives the crash window
-     * between the rename and the commit/restore so startup can finish it.
-     */
-    record StagedArtifactDeletion(Long taskId, String originalPath, String stagedPath) {
+    record PendingTaskDeletion(Long taskId, String originalPath, String stagedPath, int attempts, String lastError) {
     }
 }
