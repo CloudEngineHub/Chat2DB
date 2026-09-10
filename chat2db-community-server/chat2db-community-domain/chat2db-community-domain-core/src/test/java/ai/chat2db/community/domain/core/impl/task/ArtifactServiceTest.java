@@ -16,6 +16,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -27,6 +28,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -291,6 +293,129 @@ class ArtifactServiceTest {
         service.restorePublishedDeletion(restoreDeletion);
         assertTrue(service.loadStagedDeletions().isEmpty());
         assertEquals("value", Files.readString(restored));
+    }
+
+    @Test
+    void journalCleanupFailureDoesNotRollBackDeletedTask() throws IOException {
+        Path artifact = Files.writeString(tempDirectory.resolve("commit.csv"), "value");
+        Path blockedWrite = tempDirectory.resolve("artifact-deletions.json.part");
+        RecordingTaskStorage storage = new RecordingTaskStorage(Task.builder()
+                .id(1L).status(TaskStatus.SUCCESS.name()).artifactId(artifact.toString()).build());
+        ArtifactService service = new ArtifactService(journalFile()) {
+            @Override
+            void commitPublishedDeletion(PublishedArtifactDeletion deletion) {
+                assertDoesNotThrow(() -> Files.createDirectory(blockedWrite));
+                super.commitPublishedDeletion(deletion);
+            }
+        };
+
+        assertDoesNotThrow(() -> new TaskServiceImpl(storage, null, service).delete(1L));
+
+        assertTrue(storage.get(1L).isEmpty());
+        assertFalse(Files.exists(artifact));
+        assertEquals(1, service.loadStagedDeletions().size());
+        Files.delete(blockedWrite);
+        ArtifactService restarted = new ArtifactService(journalFile());
+        new TaskServiceImpl(storage, null, restarted).recoverInterruptedArtifactDeletions();
+        assertTrue(restarted.loadStagedDeletions().isEmpty());
+        assertTrue(new ArtifactService(journalFile()).loadStagedDeletions().isEmpty());
+    }
+
+    @Test
+    void startupRecoveryPreservesNewExportAndRetriesAfterConflictIsRemoved() throws IOException {
+        Path artifact = Files.writeString(tempDirectory.resolve("export.csv"), "old export");
+        ArtifactService service = new ArtifactService(journalFile());
+        var deletion = service.stagePublishedDeletion(1L, artifact.toString());
+        var next = service.createDraft(2L, tempDirectory.toString(), "export.csv", "text/csv");
+        Files.writeString(next.getTemporaryFile().toPath(), "new export");
+        assertEquals(artifact, Path.of(service.publish(next)));
+        RecordingTaskStorage storage = new RecordingTaskStorage(Task.builder()
+                .id(1L).status(TaskStatus.SUCCESS.name()).artifactId(artifact.toString()).build());
+        ArtifactService restarted = new ArtifactService(journalFile());
+        TaskServiceImpl tasks = new TaskServiceImpl(storage, null, restarted);
+
+        tasks.recoverInterruptedArtifactDeletions();
+
+        assertEquals("new export", Files.readString(artifact));
+        assertEquals("old export", Files.readString(deletion.stagedPath()));
+        assertEquals(1, restarted.loadStagedDeletions().size());
+        var download = tasks.resolveArtifact(1L);
+        assertEquals("export.csv", download.getFileName());
+        assertEquals("old export", Files.readString(Path.of(URI.create(download.getFileUri()))));
+        Files.delete(artifact);
+        tasks.recoverInterruptedArtifactDeletions();
+        assertEquals("old export", Files.readString(artifact));
+        assertFalse(Files.exists(deletion.stagedPath()));
+        assertTrue(restarted.loadStagedDeletions().isEmpty());
+    }
+
+    @Test
+    void deletingTaskAfterRecoveryConflictOnlyDeletesItsStagedArtifact() throws IOException {
+        Path artifact = Files.writeString(tempDirectory.resolve("export.csv"), "old export");
+        ArtifactService service = new ArtifactService(journalFile());
+        var deletion = service.stagePublishedDeletion(1L, artifact.toString());
+        Files.writeString(artifact, "new export");
+        RecordingTaskStorage storage = new RecordingTaskStorage(Task.builder()
+                .id(1L).status(TaskStatus.SUCCESS.name()).artifactId(artifact.toString()).build());
+        ArtifactService restarted = new ArtifactService(journalFile());
+        TaskServiceImpl tasks = new TaskServiceImpl(storage, null, restarted);
+        tasks.recoverInterruptedArtifactDeletions();
+
+        tasks.delete(1L);
+
+        assertEquals("new export", Files.readString(artifact));
+        assertFalse(Files.exists(deletion.stagedPath()));
+        assertTrue(storage.get(1L).isEmpty());
+        assertTrue(new ArtifactService(journalFile()).loadStagedDeletions().isEmpty());
+    }
+
+    @Test
+    void rollbackPreservesExistingFileAndPendingRecovery() throws IOException {
+        Path artifact = Files.writeString(tempDirectory.resolve("export.csv"), "old export");
+        ArtifactService service = new ArtifactService(journalFile());
+        var deletion = service.stagePublishedDeletion(1L, artifact.toString());
+        Files.writeString(artifact, "new export");
+
+        assertThrows(BusinessException.class, () -> service.restorePublishedDeletion(deletion));
+
+        assertEquals("new export", Files.readString(artifact));
+        assertEquals("old export", Files.readString(deletion.stagedPath()));
+        assertEquals(1, new ArtifactService(journalFile()).loadStagedDeletions().size());
+    }
+
+    @Test
+    void failedJournalRemovalRemainsRetryableWithoutRestart() throws IOException {
+        Path artifact = Files.writeString(tempDirectory.resolve("export.csv"), "value");
+        ArtifactService service = new ArtifactService(journalFile());
+        var deletion = service.stagePublishedDeletion(1L, artifact.toString());
+        Path blockedWrite = Files.createDirectory(tempDirectory.resolve("artifact-deletions.json.part"));
+
+        assertThrows(BusinessException.class, () -> service.restorePublishedDeletion(deletion));
+
+        assertEquals("value", Files.readString(artifact));
+        assertEquals(1, service.loadStagedDeletions().size());
+        Files.delete(blockedWrite);
+        service.restorePublishedDeletion(deletion);
+        assertTrue(service.loadStagedDeletions().isEmpty());
+        assertTrue(new ArtifactService(journalFile()).loadStagedDeletions().isEmpty());
+    }
+
+    @Test
+    void failedJournalAppendDoesNotLeakIntoLaterSuccessfulWrite() throws IOException {
+        Path artifact = Files.writeString(tempDirectory.resolve("first.csv"), "first");
+        ArtifactService service = new ArtifactService(journalFile());
+        Path blockedWrite = Files.createDirectory(tempDirectory.resolve("artifact-deletions.json.part"));
+
+        assertThrows(BusinessException.class, () -> service.stagePublishedDeletion(1L, artifact.toString()));
+
+        assertTrue(service.loadStagedDeletions().isEmpty());
+        assertEquals("first", Files.readString(artifact));
+        Files.delete(blockedWrite);
+        Path second = Files.writeString(tempDirectory.resolve("second.csv"), "second");
+        service.stagePublishedDeletion(2L, second.toString());
+        var entries = new ArtifactService(journalFile()).loadStagedDeletions();
+        assertEquals(1, entries.size());
+        assertEquals(2L, entries.get(0).taskId());
     }
 
     private static final class RecordingTaskStorage implements TaskStorage {

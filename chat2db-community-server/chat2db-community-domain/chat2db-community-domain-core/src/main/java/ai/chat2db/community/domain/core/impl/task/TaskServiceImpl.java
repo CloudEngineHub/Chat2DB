@@ -160,11 +160,12 @@ public class TaskServiceImpl implements TaskService {
                 || StringUtils.isBlank(task.getArtifactId())) {
             throw new DataNotFoundException();
         }
-        File file = new File(task.getArtifactId());
+        File file = artifactService.resolvePublishedArtifact(taskId, task.getArtifactId());
         if (!file.isFile() || !file.canRead()) {
             throw new DataNotFoundException();
         }
-        return TaskDownload.builder().fileName(file.getName()).fileUri(file.toURI().toString()).build();
+        return TaskDownload.builder().fileName(new File(task.getArtifactId()).getName())
+                .fileUri(file.toURI().toString()).build();
     }
 
     private <S extends TaskSpec> Long submit(S spec) {
