@@ -112,7 +112,7 @@ class TaskWebConverterTest {
     }
 
     @Test
-    void preservesValidatedCsvOptionsForImportAndExportTasks() {
+    void preservesValidatedCsvOptionsForImportTasks() {
         CsvOptions csvOptions = CsvOptions.builder()
                 .encoding("AUTO")
                 .delimiter("|")
@@ -132,15 +132,11 @@ class TaskWebConverterTest {
                 .build();
         TaskImportRequest importRequest = importRequest(TaskType.DATA_FILE_IMPORT.name());
         importRequest.setCsvOptions(csvOptions);
-        TaskExportRequest exportRequest = exportRequest(TaskType.TABLE_DATA_EXPORT.name(), "app", "orders");
-        exportRequest.setCsvOptions(csvOptions);
 
         ImportTaskSpec importSpec = converter.importRequest2spec(importRequest);
-        ExportTaskSpec exportSpec = converter.exportRequest2spec(exportRequest);
 
         assertEquals("AUTO", importSpec.getCsvOptions().getEncoding());
         assertEquals("\\", importSpec.getCsvOptions().getEscape());
-        assertEquals("CRLF", exportSpec.getCsvOptions().getNewline());
         assertEquals(3, importSpec.getCsvOptions().getHeaderRow());
         assertEquals(20, importSpec.getCsvOptions().getDataEndRow());
         assertEquals("DMY", importSpec.getCsvOptions().getDateOrder());

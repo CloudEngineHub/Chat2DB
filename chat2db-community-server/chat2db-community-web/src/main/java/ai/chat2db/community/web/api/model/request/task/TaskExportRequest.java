@@ -1,7 +1,6 @@
 package ai.chat2db.community.web.api.model.request.task;
 
 import ai.chat2db.community.web.api.model.request.data.source.DataSourceBaseRequest;
-import ai.chat2db.community.domain.api.model.task.CsvOptions;
 import lombok.Data;
 
 import java.util.List;
@@ -34,6 +33,4 @@ public class TaskExportRequest extends DataSourceBaseRequest {
     private String exportPath;
 
     private String suggestedFileName;
-
-    private CsvOptions csvOptions;
 }

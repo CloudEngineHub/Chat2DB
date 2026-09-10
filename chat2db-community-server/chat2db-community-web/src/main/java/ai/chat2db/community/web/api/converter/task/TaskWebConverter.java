@@ -45,7 +45,6 @@ public class TaskWebConverter {
                 .containsHeader(request.getContainsHeader())
                 .exportPath(request.getExportPath())
                 .suggestedFileName(request.getSuggestedFileName())
-                .csvOptions(csvOptions(format, request.getCsvOptions()))
                 .build();
     }
 

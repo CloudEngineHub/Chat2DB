@@ -1,6 +1,5 @@
 package ai.chat2db.community.domain.api.model.request.db;
 
-import ai.chat2db.community.domain.api.model.task.CsvOptions;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -22,6 +21,4 @@ public class DbDmlExportRequest {
     private String exportSize;
 
     private String originalSql;
-
-    private CsvOptions csvOptions;
 }

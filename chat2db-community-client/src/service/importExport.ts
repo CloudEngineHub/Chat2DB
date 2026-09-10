@@ -54,7 +54,6 @@ export interface ExportTaskParams extends IDatabaseBaseInfo {
   containsHeader?: boolean;
   exportPath?: string;
   suggestedFileName?: string;
-  csvOptions?: ICsvOptions;
 }
 
 export interface ImportTaskParams extends IDatabaseBaseInfo {

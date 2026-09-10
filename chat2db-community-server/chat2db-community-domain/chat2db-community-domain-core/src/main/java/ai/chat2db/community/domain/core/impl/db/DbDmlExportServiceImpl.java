@@ -2,7 +2,6 @@ package ai.chat2db.community.domain.core.impl.db;
 
 import ai.chat2db.community.domain.api.enums.ExportSizeEnum;
 import ai.chat2db.community.domain.api.enums.ExportTypeEnum;
-import ai.chat2db.community.domain.api.enums.plugin.DataTypeEnum;
 import ai.chat2db.community.domain.api.model.db.DbDmlExportPlan;
 import ai.chat2db.community.domain.api.model.metadata.DataType;
 import ai.chat2db.community.domain.api.model.request.db.DbDmlExportRequest;
@@ -53,7 +52,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
-import java.io.UncheckedIOException;
 import java.lang.reflect.Array;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -122,7 +120,7 @@ public class DbDmlExportServiceImpl implements IDbDmlExportService {
         ExportTypeEnum exportType = ExportTypeEnum.from(param.getExportType());
         if (ExportTypeEnum.CSV == exportType) {
             exportCsv(plan, outputStream, param.getResultSetId(), statementListener, cancellationChecker,
-                    rowListener, finalizationListener, param.getCsvOptions());
+                    rowListener, finalizationListener);
             return;
         }
         if (ExportTypeEnum.EXCEL == exportType) {
@@ -172,37 +170,31 @@ public class DbDmlExportServiceImpl implements IDbDmlExportService {
 
     private void exportCsv(SqlExecutionPlan plan, OutputStream outputStream, Integer resultSetId,
             ISqlExecutionStatementListener statementListener, Runnable cancellationChecker,
-            LongConsumer exportedRowsListener, Runnable fileFinalizationListener,
-            ai.chat2db.community.domain.api.model.task.CsvOptions csvOptions) {
+            LongConsumer exportedRowsListener, Runnable fileFinalizationListener) {
+        ExcelWrapper excelWrapper = new ExcelWrapper();
         IValueProcessor valueProcessor = Chat2DBContext.getDbMetaData().getValueProcessor();
-        try (CsvWriter csvWriter = new CsvWriter(csvOptions, outputStream)) {
+        try {
+            ExcelWriterBuilder excelWriterBuilder = EasyExcel.write(outputStream)
+                    .charset(StandardCharsets.UTF_8)
+                    .excelType(ExcelTypeEnum.CSV);
             List<Integer> includedIndexes = new ArrayList<>();
-            List<Boolean> formulaProtectedColumns = new ArrayList<>();
             DefaultSQLExecutor.getInstance().execute(Chat2DBContext.getConnection(), plan.getSql(), headerList -> {
                 includedIndexes.addAll(sqlExecutionPolicyManager.includedColumnIndexes(plan, headerList));
-                select(headerList, includedIndexes).forEach(header -> formulaProtectedColumns.add(
-                        DataTypeEnum.STRING.name().equals(header.getDataType())
-                                || DataTypeEnum.CONTENT.name().equals(header.getDataType())));
-                try {
-                    csvWriter.writeRow(select(headerList, includedIndexes).stream().map(Header::getName).toList());
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
+                excelWriterBuilder.head(EasyCollectionUtils.toList(select(headerList, includedIndexes),
+                        header -> Lists.newArrayList(header.getName())));
+                excelWrapper.setExcelWriter(excelWriterBuilder.build());
+                excelWrapper.setWriteSheet(EasyExcel.writerSheet(0).build());
             }, dataList -> {
-                try {
-                    csvWriter.writeRow(select(dataList, includedIndexes), formulaProtectedColumns::get);
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
+                excelWrapper.getExcelWriter().write(List.of(select(dataList, includedIndexes)),
+                        excelWrapper.getWriteSheet());
                 exportedRowsListener.accept(1L);
             }, exportValueFormatter(plan, valueProcessor, false), false, resultSetId, statementListener,
                     cancellationChecker, plan.getMaxRows());
             fileFinalizationListener.run();
-        } catch (UncheckedIOException e) {
-            throw new TaskExecutionException(TaskErrorCode.FILE_WRITE_FAILED.name(), "Could not write CSV export",
-                    e.getCause());
-        } catch (IOException e) {
-            throw new TaskExecutionException(TaskErrorCode.FILE_WRITE_FAILED.name(), "Could not write CSV export", e);
+        } finally {
+            if (excelWrapper.getExcelWriter() != null) {
+                excelWrapper.getExcelWriter().finish();
+            }
         }
     }
 
