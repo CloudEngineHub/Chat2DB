@@ -9,12 +9,17 @@ import ai.chat2db.community.domain.api.model.task.TaskStage;
 import ai.chat2db.community.domain.api.model.task.TaskType;
 import ai.chat2db.community.domain.api.service.task.TaskExecutionContext;
 import ai.chat2db.community.domain.api.service.task.TaskExecutor;
+import ai.chat2db.community.domain.api.service.file.IImportFileStagingService;
 import ai.chat2db.community.domain.core.impl.task.imports.IImportStrategy;
 import ai.chat2db.community.domain.core.impl.task.imports.ImportFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Component
 public class DataFileImportTaskExecutor implements TaskExecutor<ImportTaskSpec> {
+
+    @Autowired
+    private IImportFileStagingService importFileStagingService;
 
     @Override
     public String taskType() {
@@ -44,6 +49,10 @@ public class DataFileImportTaskExecutor implements TaskExecutor<ImportTaskSpec> 
         } catch (Exception e) {
             throw new TaskExecutionException(TaskErrorCode.IMPORT_FAILED.name(),
                     "Could not import data file", e);
+        } finally {
+            if (spec.getImportFileId() != null) {
+                importFileStagingService.release(spec.getImportFileId());
+            }
         }
     }
 }
