@@ -125,12 +125,7 @@ public class ArtifactService {
             PendingTaskDeletion deletion = pending.stream()
                     .filter(entry -> Objects.equals(entry.taskId(), task.getId())).findFirst().orElse(null);
             if (deletion == null) {
-                Path original = StringUtils.isBlank(task.getArtifactId()) ? null
-                        : Path.of(task.getArtifactId()).toAbsolutePath().normalize();
-                String staged = original == null ? null : original.resolveSibling("." + original.getFileName()
-                        + DELETION_FILE_MARKER + UUID.randomUUID()).toString();
-                deletion = new PendingTaskDeletion(task.getId(), original == null ? null : original.toString(),
-                        staged, 0, null);
+                deletion = PendingTaskDeletion.create(task);
                 pending.add(deletion);
             }
             completeDeletion(pending, deletion, storage);
@@ -163,34 +158,14 @@ public class ArtifactService {
     private void completeDeletion(List<PendingTaskDeletion> pending, PendingTaskDeletion deletion,
             TaskStorage storage) throws IOException {
         int index = pending.indexOf(deletion);
-        PendingTaskDeletion attempted = new PendingTaskDeletion(deletion.taskId(), deletion.originalPath(),
-                deletion.stagedPath(), deletion.attempts() + 1, null);
+        PendingTaskDeletion attempted = deletion.nextAttempt();
         pending.set(index, attempted);
         // Persist the intent and attempt count before touching either the task or its artifact.
         writePendingDeletions(pending);
         try {
-            Path staged = deletion.stagedPath() == null ? null : Path.of(deletion.stagedPath());
-            if (storage.get(deletion.taskId()).isPresent()) {
-                if (staged != null && Files.notExists(staged)) {
-                    Path original = Path.of(deletion.originalPath());
-                    if (Files.exists(original)) {
-                        if (!Files.isRegularFile(original)) {
-                            throw new IOException("Task artifact is not a regular file: " + original);
-                        }
-                        Files.move(original, staged);
-                    }
-                }
-                if (!storage.deleteTerminalTask(deletion.taskId(), null)) {
-                    throw new IOException("Task is not terminal: " + deletion.taskId());
-                }
-            }
-            // Once the task record is gone, its original path may belong to a newer export.
-            if (staged != null) {
-                Files.deleteIfExists(staged);
-            }
+            executeDeletion(deletion, storage);
         } catch (Exception e) {
-            pending.set(index, new PendingTaskDeletion(attempted.taskId(), attempted.originalPath(),
-                    attempted.stagedPath(), attempted.attempts(), e.toString()));
+            pending.set(index, attempted.failed(e));
             try {
                 writePendingDeletions(pending);
             } catch (Exception writeFailure) {
@@ -200,6 +175,33 @@ public class ArtifactService {
         }
         pending.remove(index);
         writePendingDeletions(pending);
+    }
+
+    private void executeDeletion(PendingTaskDeletion deletion, TaskStorage storage) throws IOException {
+        Path staged = deletion.stagedPath() == null ? null : Path.of(deletion.stagedPath());
+        if (storage.get(deletion.taskId()).isPresent()) {
+            stageArtifact(deletion.originalPath(), staged);
+            if (!storage.deleteTerminalTask(deletion.taskId(), null)) {
+                throw new IOException("Task is not terminal: " + deletion.taskId());
+            }
+        }
+        // Once the task record is gone, its original path may belong to a newer export.
+        if (staged != null) {
+            Files.deleteIfExists(staged);
+        }
+    }
+
+    private void stageArtifact(String originalPath, Path staged) throws IOException {
+        if (staged == null || !Files.notExists(staged)) {
+            return;
+        }
+        Path original = Path.of(originalPath);
+        if (Files.exists(original)) {
+            if (!Files.isRegularFile(original)) {
+                throw new IOException("Task artifact is not a regular file: " + original);
+            }
+            Files.move(original, staged);
+        }
     }
 
     synchronized File resolvePublishedArtifact(Long taskId, String artifactId) {
@@ -319,5 +321,20 @@ public class ArtifactService {
     }
 
     record PendingTaskDeletion(Long taskId, String originalPath, String stagedPath, int attempts, String lastError) {
+        private static PendingTaskDeletion create(Task task) {
+            Path original = StringUtils.isBlank(task.getArtifactId()) ? null
+                    : Path.of(task.getArtifactId()).toAbsolutePath().normalize();
+            String staged = original == null ? null : original.resolveSibling("." + original.getFileName()
+                    + DELETION_FILE_MARKER + UUID.randomUUID()).toString();
+            return new PendingTaskDeletion(task.getId(), original == null ? null : original.toString(), staged, 0, null);
+        }
+
+        private PendingTaskDeletion nextAttempt() {
+            return new PendingTaskDeletion(taskId, originalPath, stagedPath, attempts + 1, null);
+        }
+
+        private PendingTaskDeletion failed(Exception error) {
+            return new PendingTaskDeletion(taskId, originalPath, stagedPath, attempts, error.toString());
+        }
     }
 }
