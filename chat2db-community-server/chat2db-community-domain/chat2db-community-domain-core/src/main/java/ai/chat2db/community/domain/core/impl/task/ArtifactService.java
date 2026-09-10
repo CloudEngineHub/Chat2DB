@@ -7,8 +7,7 @@ import ai.chat2db.community.domain.api.service.task.TaskStorage;
 import ai.chat2db.community.tools.exception.DataNotFoundException;
 import ai.chat2db.community.tools.exception.BusinessException;
 import ai.chat2db.community.tools.util.ConfigUtils;
-import cn.hutool.core.io.FileUtil;
-import com.alibaba.fastjson2.JSON;
+import ai.chat2db.community.tools.util.JsonFileUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
@@ -19,7 +18,6 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -142,7 +140,7 @@ public class ArtifactService {
                     if (storage.get(deletion.taskId()).isEmpty() && (deletion.stagedPath() == null
                             || Files.notExists(Path.of(deletion.stagedPath())))) {
                         pending.remove(deletion);
-                        writePendingDeletions(pending);
+                        JsonFileUtils.writeAtomically(deletionJournalFile, pending);
                     } else if (deletion.attempts() < MAX_DELETION_ATTEMPTS) {
                         completeDeletion(pending, deletion, storage);
                     }
@@ -161,20 +159,20 @@ public class ArtifactService {
         PendingTaskDeletion attempted = deletion.nextAttempt();
         pending.set(index, attempted);
         // Persist the intent and attempt count before touching either the task or its artifact.
-        writePendingDeletions(pending);
+        JsonFileUtils.writeAtomically(deletionJournalFile, pending);
         try {
             executeDeletion(deletion, storage);
         } catch (Exception e) {
             pending.set(index, attempted.failed(e));
             try {
-                writePendingDeletions(pending);
+                JsonFileUtils.writeAtomically(deletionJournalFile, pending);
             } catch (Exception writeFailure) {
                 e.addSuppressed(writeFailure);
             }
             throw e;
         }
         pending.remove(index);
-        writePendingDeletions(pending);
+        JsonFileUtils.writeAtomically(deletionJournalFile, pending);
     }
 
     private void executeDeletion(PendingTaskDeletion deletion, TaskStorage storage) throws IOException {
@@ -215,27 +213,11 @@ public class ArtifactService {
     }
 
     private List<PendingTaskDeletion> readPendingDeletions() {
-        if (!deletionJournalFile.exists()) {
-            return new ArrayList<>();
-        }
-        List<PendingTaskDeletion> pending = JSON.parseArray(
-                FileUtil.readUtf8String(deletionJournalFile), PendingTaskDeletion.class);
-        if (pending == null || pending.stream().anyMatch(entry -> entry == null || entry.taskId() == null)) {
+        List<PendingTaskDeletion> pending = JsonFileUtils.readArray(deletionJournalFile, PendingTaskDeletion.class);
+        if (pending.stream().anyMatch(entry -> entry == null || entry.taskId() == null)) {
             throw new IllegalStateException("Invalid task deletion queue: " + deletionJournalFile);
         }
         return pending;
-    }
-
-    private void writePendingDeletions(List<PendingTaskDeletion> pending) throws IOException {
-        FileUtil.mkParentDirs(deletionJournalFile);
-        Path temporary = deletionJournalFile.toPath().resolveSibling(deletionJournalFile.getName() + DRAFT_FILE_SUFFIX);
-        Files.writeString(temporary, JSON.toJSONString(pending));
-        try {
-            Files.move(temporary, deletionJournalFile.toPath(), StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.move(temporary, deletionJournalFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-        }
     }
 
     boolean cleanupInterruptedArtifact(Long taskId, String temporaryPath, String publishedPath) {
