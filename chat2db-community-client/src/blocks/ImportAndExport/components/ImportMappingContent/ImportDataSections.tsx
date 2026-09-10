@@ -3,7 +3,8 @@ import type { ColumnsType } from 'antd/es/table';
 import { TriangleAlert } from 'lucide-react';
 import { ImportUnmappedTarget, SKIP_IMPORT_SOURCE_FIELD } from '@/constants/importExport';
 import i18n from '@/i18n';
-import type { ICsvOptions, IImportPreview } from '@/service/sql';
+import type { IImportPreview } from '@/service/sql';
+import type { ICsvOptions } from '@/typings/importExport';
 import { buildImportMappingRows, type IDuplicateImportMapping, type ImportMappingRow } from './mapping';
 import { useStyles } from './style';
 

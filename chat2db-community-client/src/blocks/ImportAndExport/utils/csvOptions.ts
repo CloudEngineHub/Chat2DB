@@ -1,4 +1,4 @@
-import { ICsvOptions } from '@/service/sql';
+import type { ICsvOptions } from '@/typings/importExport';
 import { ImportExportFileType, ImportPreviewErrorCode } from '@/constants/importExport';
 
 export const DEFAULT_CSV_OPTIONS: ICsvOptions = {

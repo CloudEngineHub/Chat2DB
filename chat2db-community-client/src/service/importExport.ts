@@ -1,9 +1,8 @@
 import createRequest from './base';
 import { IDatabaseBaseInfo } from '@/typings/database';
 import { IPageResponse } from '@/typings';
-import { ImportExportTaskDetails, ImportExportTaskEvent } from '@/typings/importExport';
+import type { ICsvOptions, ImportExportTaskDetails, ImportExportTaskEvent } from '@/typings/importExport';
 import { ImportExportFileType, ImportExportTaskType } from '@/constants/importExport';
-import type { ICsvOptions } from '@/service/sql';
 
 export interface GenerateJavaClassParams extends IDatabaseBaseInfo {
   exportPath: string;

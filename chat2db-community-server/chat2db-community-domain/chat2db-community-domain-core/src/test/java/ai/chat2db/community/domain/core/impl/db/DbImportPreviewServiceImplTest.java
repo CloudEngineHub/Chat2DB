@@ -68,7 +68,7 @@ class DbImportPreviewServiceImplTest {
     @Test
     void previewCanonicalizesTableCaseWithoutLosingTargetColumns(@TempDir Path directory)
             throws Exception {
-        ImportPreview preview = new DbImportPreviewServiceImpl()
+        ImportPreview preview = service()
                 .preview(DATA_SOURCE_ID, DATABASE, null, "ORDERS", csv(directory));
 
         assertEquals(1, metaData.requests.size());
@@ -85,7 +85,7 @@ class DbImportPreviewServiceImplTest {
     void previewAcceptsPunctuationInARealTableName(@TempDir Path directory) throws Exception {
         metaData.tableName = "order.items";
 
-        ImportPreview preview = new DbImportPreviewServiceImpl()
+        ImportPreview preview = service()
                 .preview(DATA_SOURCE_ID, DATABASE, null, "order.items", csv(directory));
 
         assertEquals("order.items", preview.getTargetTableName());
@@ -102,7 +102,7 @@ class DbImportPreviewServiceImplTest {
             }
         };
 
-        ImportPreview preview = new DbImportPreviewServiceImpl()
+        ImportPreview preview = service()
                 .preview(DATA_SOURCE_ID, "<app>", null, "<orders>", csv(directory));
 
         assertEquals("orders", preview.getTargetTableName());
@@ -114,7 +114,7 @@ class DbImportPreviewServiceImplTest {
         Chat2DBContext.getDBConfig().setSupportSchema(true);
         Chat2DBContext.getConnectInfo().setSchemaName("public");
 
-        new DbImportPreviewServiceImpl()
+        service()
                 .preview(DATA_SOURCE_ID, DATABASE, "public", "orders", csv(directory));
 
         TableMetadataRequest request = metaData.requests.get(0);
@@ -125,7 +125,7 @@ class DbImportPreviewServiceImplTest {
 
     @Test
     void previewRejectsDatabaseMismatchBeforeMetadataLookup(@TempDir Path directory) throws Exception {
-        assertThrows(BusinessException.class, () -> new DbImportPreviewServiceImpl()
+        assertThrows(BusinessException.class, () -> service()
                 .preview(DATA_SOURCE_ID, "other", null, "orders", csv(directory)));
 
         assertEquals(0, metaData.tablesRequests);
@@ -134,7 +134,7 @@ class DbImportPreviewServiceImplTest {
 
     @Test
     void previewRejectsTableNameThatDoesNotExist(@TempDir Path directory) throws Exception {
-        assertThrows(BusinessException.class, () -> new DbImportPreviewServiceImpl()
+        assertThrows(BusinessException.class, () -> service()
                 .preview(DATA_SOURCE_ID, DATABASE, null, "orders%", csv(directory)));
 
         assertEquals(1, metaData.tablesRequests);
@@ -150,7 +150,7 @@ class DbImportPreviewServiceImplTest {
         Path path = directory.resolve("large-orders.csv");
         Files.writeString(path, content, StandardCharsets.UTF_8);
 
-        ImportPreview preview = new DbImportPreviewServiceImpl()
+        ImportPreview preview = service()
                 .preview(DATA_SOURCE_ID, DATABASE, null, "orders", path.toFile());
 
         assertEquals(10, preview.getPreviewLimit());
@@ -165,7 +165,7 @@ class DbImportPreviewServiceImplTest {
         Path path = directory.resolve("duplicate-columns.csv");
         Files.writeString(path, "Name,name\nAlice,Bob\n", StandardCharsets.UTF_8);
 
-        assertThrows(BusinessException.class, () -> new DbImportPreviewServiceImpl()
+        assertThrows(BusinessException.class, () -> service()
                 .preview(DATA_SOURCE_ID, DATABASE, null, "orders", path.toFile()));
 
         assertEquals(0, metaData.tablesRequests);
@@ -182,7 +182,7 @@ class DbImportPreviewServiceImplTest {
         Path path = directory.resolve("headerless.csv");
         Files.writeString(path, "Alice,alice@example.com,extra\n", StandardCharsets.UTF_8);
 
-        ImportPreview preview = new DbImportPreviewServiceImpl().preview(DATA_SOURCE_ID, DATABASE, null,
+        ImportPreview preview = service().preview(DATA_SOURCE_ID, DATABASE, null,
                 "orders", path.toFile(), CsvOptions.builder().hasHeader(false).build());
 
         assertEquals(List.of("column_1", "column_2", "column_3"), preview.getSourceColumns());
@@ -206,7 +206,7 @@ class DbImportPreviewServiceImplTest {
                 .emptyAsNull(false)
                 .build();
 
-        ImportPreview preview = new DbImportPreviewServiceImpl()
+        ImportPreview preview = service()
                 .preview(DATA_SOURCE_ID, DATABASE, null, "orders", path.toFile(), options);
 
         assertEquals(List.of("column_1", "column_2"), preview.getSourceColumns());
@@ -223,7 +223,7 @@ class DbImportPreviewServiceImplTest {
                 .dataEndRow(4)
                 .build();
 
-        ImportPreview preview = new DbImportPreviewServiceImpl()
+        ImportPreview preview = service()
                 .preview(DATA_SOURCE_ID, DATABASE, null, "orders", path.toFile(), options);
 
         assertEquals(List.of("Name", "Note"), preview.getSourceColumns());
@@ -234,6 +234,10 @@ class DbImportPreviewServiceImplTest {
         Path path = directory.resolve("orders.csv");
         Files.writeString(path, "Name\nAlice\n", StandardCharsets.UTF_8);
         return path.toFile();
+    }
+
+    private DbImportPreviewServiceImpl service() {
+        return new DbImportPreviewServiceImpl(new ImportPreviewFileParser());
     }
 
     private IPlugin plugin(DBConfig config) {

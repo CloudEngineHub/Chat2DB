@@ -8,9 +8,6 @@ import ai.chat2db.community.domain.api.service.db.IDbImportPreviewService;
 import ai.chat2db.community.tools.exception.BusinessException;
 import ai.chat2db.spi.sql.Chat2DBContext;
 import ai.chat2db.spi.model.request.TableMetadataRequest;
-import com.alibaba.excel.EasyExcel;
-import com.alibaba.excel.support.ExcelTypeEnum;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
@@ -23,14 +20,19 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Database-independent import preview. CSV/XLS/XLSX are parsed through EasyExcel; the
- * preview reads only the first {@link #PREVIEW_ROW_LIMIT} rows and never writes.
+ * Database-independent import preview. File parsing is delegated by format; this service
+ * resolves target metadata, suggests mappings, and assembles a bounded preview.
  */
-@Slf4j
 @Service
 public class DbImportPreviewServiceImpl implements IDbImportPreviewService {
 
     private static final int PREVIEW_ROW_LIMIT = 10;
+
+    private final ImportPreviewFileParser fileParser;
+
+    public DbImportPreviewServiceImpl(ImportPreviewFileParser fileParser) {
+        this.fileParser = fileParser;
+    }
 
     @Override
     public ImportPreview preview(Long dataSourceId, String databaseName, String schemaName,
@@ -41,7 +43,7 @@ public class DbImportPreviewServiceImpl implements IDbImportPreviewService {
     @Override
     public ImportPreview preview(Long dataSourceId, String databaseName, String schemaName,
                                  String tableName, File file, CsvOptions csvOptions) {
-        ParsedRows parsedRows = parseRows(file, PREVIEW_ROW_LIMIT, csvOptions);
+        ImportPreviewFileParser.ParsedRows parsedRows = fileParser.parse(file, PREVIEW_ROW_LIMIT, csvOptions);
         if (parsedRows.header().isEmpty()) {
             throw new BusinessException("import.preview.emptyFile");
         }
@@ -123,70 +125,4 @@ public class DbImportPreviewServiceImpl implements IDbImportPreviewService {
         }
     }
 
-    /**
-     * Parses the file with EasyExcel (same code path for preview and execution). The first
-     * row is treated as the header; without a header the columns are named column_1..N.
-     */
-    private static ParsedRows parseRows(File file, int limit, CsvOptions csvOptions) {
-        if (file != null && file.getName().toLowerCase(Locale.ROOT).endsWith(".csv")) {
-            CsvOptions options = (csvOptions == null ? CsvOptions.defaults() : csvOptions).validate();
-            try {
-                int previewEndRow = options.getDataStartRow() + limit - 1;
-                if (options.getDataEndRow() != null) {
-                    previewEndRow = Math.min(previewEndRow, options.getDataEndRow());
-                }
-                int parseLimit = Math.max(previewEndRow,
-                        Boolean.TRUE.equals(options.getHasHeader()) ? options.getHeaderRow() : 0);
-                CsvParser.CsvResult result = new CsvParser(options).parse(file.toPath(), parseLimit);
-                List<Map<Integer, String>> rows = result.rows();
-                if (rows.isEmpty()) {
-                    return new ParsedRows(Map.of(), List.of(), false);
-                }
-                int firstDataIndex = options.getDataStartRow() - 1;
-                int dataEndIndex = Math.min(rows.size(), previewEndRow);
-                List<Map<Integer, String>> data = firstDataIndex >= dataEndIndex
-                        ? List.of() : rows.subList(firstDataIndex, dataEndIndex);
-                if (Boolean.TRUE.equals(options.getHasHeader())) {
-                    int headerIndex = options.getHeaderRow() - 1;
-                    if (headerIndex >= rows.size()) {
-                        return new ParsedRows(Map.of(), List.of(), false);
-                    }
-                    return new ParsedRows(rows.get(headerIndex), data, false);
-                }
-                int columnCount = data.stream().mapToInt(Map::size).max().orElse(0);
-                Map<Integer, String> header = new java.util.LinkedHashMap<>();
-                for (int index = 0; index < columnCount; index++) {
-                    header.put(index, "column_" + (index + 1));
-                }
-                return new ParsedRows(header, data, true);
-            } catch (BusinessException e) {
-                throw e;
-            } catch (Exception e) {
-                log.warn("CSV import preview parse failed for {}", file, e);
-                throw new BusinessException("import.preview.parseFailed", new Object[]{e.getMessage()}, e);
-            }
-        }
-        try {
-            ImportPreviewListener listener = new ImportPreviewListener(limit);
-            EasyExcel.read(file, listener).excelType(excelType(file)).sheet().headRowNumber(1).doRead();
-            List<Map<Integer, String>> rows = listener.rows();
-            return rows.isEmpty() ? new ParsedRows(Map.of(), List.of(), false)
-                    : new ParsedRows(rows.get(0), rows.subList(1, rows.size()), false);
-        } catch (Exception e) {
-            log.warn("import preview parse failed for {}", file, e);
-            throw new BusinessException("import.preview.parseFailed", new Object[]{e.getMessage()}, e);
-        }
-    }
-
-    private record ParsedRows(Map<Integer, String> header, List<Map<Integer, String>> data,
-            boolean syntheticHeader) {
-    }
-
-    private static ExcelTypeEnum excelType(File file) {
-        String name = file.getName().toLowerCase(Locale.ROOT);
-        if (name.endsWith(".csv")) {
-            return ExcelTypeEnum.CSV;
-        }
-        return name.endsWith(".xls") ? ExcelTypeEnum.XLS : ExcelTypeEnum.XLSX;
-    }
 }

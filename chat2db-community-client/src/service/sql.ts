@@ -1,4 +1,5 @@
 import createRequest from './base';
+import type { ICsvOptions } from '@/typings/importExport';
 import { ImportUnmappedTarget } from '@/constants/importExport';
 import {
   IPageResponse,
@@ -458,25 +459,6 @@ export interface IImportPreview {
 
 export interface IImportTaskSubmitResult {
   taskId: number;
-}
-
-export interface ICsvOptions {
-  encoding: string;
-  delimiter: string;
-  quote: string;
-  escape: string;
-  newline: 'LF' | 'CRLF' | 'CR';
-  hasHeader: boolean;
-  emptyAsNull: boolean;
-  headerRow: number;
-  dataStartRow: number;
-  dataEndRow?: number;
-  dateOrder: 'YMD' | 'YDM' | 'MDY' | 'MYD' | 'DMY' | 'DYM';
-  dateTimeOrder: 'DATE_TIME' | 'TIME_DATE' | 'DATE_TIME_TIMEZONE' | 'TIME_DATE_TIMEZONE' | 'TIME_TIMEZONE_DATE';
-  dateDelimiter: string;
-  yearDelimiter: string;
-  timeDelimiter: string;
-  decimalSymbol: '.' | ',';
 }
 
 const uploadImportFile = createRequest<{ file: File }, string>('/api/rdb/import_preview/upload', {

@@ -1,5 +1,5 @@
 import { Checkbox, Collapse, InputNumber, Select, type CollapseProps } from 'antd';
-import type { ICsvOptions } from '@/service/sql';
+import type { ICsvOptions } from '@/typings/importExport';
 import i18n from '@/i18n';
 import LocalFileEncodingSelect from '@/components/LocalFileEncodingSelect';
 import SingleCharacterSelect from '@/components/SingleCharacterSelect';

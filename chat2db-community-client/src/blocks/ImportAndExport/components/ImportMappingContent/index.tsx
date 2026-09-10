@@ -8,7 +8,8 @@ import {
   SKIP_IMPORT_SOURCE_FIELD,
 } from '@/constants/importExport';
 import i18n from '@/i18n';
-import sqlService, { ICsvOptions, IImportPreview } from '@/service/sql';
+import sqlService, { IImportPreview } from '@/service/sql';
+import type { ICsvOptions } from '@/typings/importExport';
 import {
   buildInitialImportMapping,
   getDuplicateImportMappings,
