@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -289,6 +290,106 @@ class TaskDeletionServiceImplTest {
         assertThrows(DataNotFoundException.class, () -> tasks(storage).delete(1L));
         assertFalse(journalFile().exists());
         assertEquals("value", Files.readString(artifact));
+    }
+
+    @Test
+    void concurrentDeletionOfTheSameTaskCommitsOnlyOnce() throws Exception {
+        Path artifact = Files.writeString(tempDirectory.resolve("export.csv"), "value");
+        RecordingTaskStorage storage = storage(1L, artifact);
+        AtomicInteger commits = new AtomicInteger();
+        storage.afterDelete = commits::incrementAndGet;
+        TaskServiceImpl service = tasks(storage);
+        var executor = Executors.newFixedThreadPool(2);
+        var start = new CountDownLatch(1);
+        try {
+            var jobs = List.of(1, 2).stream().map(ignored -> executor.submit(() -> {
+                start.await();
+                try {
+                    service.delete(1L);
+                    return true;
+                } catch (DataNotFoundException alreadyDeleted) {
+                    return false;
+                }
+            })).toList();
+            start.countDown();
+            int successes = 0;
+            for (var job : jobs) {
+                successes += job.get() ? 1 : 0;
+            }
+            assertEquals(1, successes);
+        } finally {
+            executor.shutdownNow();
+        }
+        assertEquals(1, commits.get());
+        assertTrue(storage.get(1L).isEmpty());
+        assertFalse(Files.exists(artifact));
+        assertTrue(queue().isEmpty());
+    }
+
+    @Test
+    void abruptTerminationAfterStagingLeavesDurableWorkForRestart() throws IOException {
+        Path artifact = Files.writeString(tempDirectory.resolve("export.csv"), "old export");
+        RecordingTaskStorage storage = storage(1L, artifact);
+        storage.beforeDelete = () -> { throw new AssertionError("simulated process termination"); };
+
+        assertThrows(AssertionError.class, () -> tasks(storage).delete(1L));
+
+        PendingTaskDeletion pending = queue().get(0);
+        assertEquals(1, pending.getAttempts());
+        assertTrue(storage.get(1L).isPresent());
+        assertFalse(Files.exists(artifact));
+        assertEquals("old export", Files.readString(pending.stagedFile()));
+        storage.beforeDelete = () -> {};
+        Files.writeString(artifact, "new export");
+        tasks(storage).recoverInterruptedArtifactDeletions();
+        assertTrue(storage.get(1L).isEmpty());
+        assertFalse(Files.exists(pending.stagedFile()));
+        assertEquals("new export", Files.readString(artifact));
+        assertTrue(queue().isEmpty());
+    }
+
+    @Test
+    void simultaneousStorageAndQueueWriteFailureStillLeavesRecoverableIntent() throws IOException {
+        Path artifact = Files.writeString(tempDirectory.resolve("export.csv"), "old export");
+        RecordingTaskStorage storage = storage(1L, artifact);
+        Path blockedWrite = tempDirectory.resolve(journalFile().getName() + ".part");
+        storage.beforeDelete = () -> assertDoesNotThrow(() -> Files.createDirectory(blockedWrite));
+        storage.failDeletion = true;
+
+        assertThrows(BusinessException.class, () -> tasks(storage).delete(1L));
+
+        PendingTaskDeletion pending = queue().get(0);
+        assertEquals(1, pending.getAttempts());
+        assertTrue(storage.get(1L).isPresent());
+        assertEquals("old export", Files.readString(pending.stagedFile()));
+        Files.delete(blockedWrite);
+        storage.beforeDelete = () -> {};
+        storage.failDeletion = false;
+        Files.writeString(artifact, "new export");
+        tasks(storage).recoverInterruptedArtifactDeletions();
+        assertTrue(storage.get(1L).isEmpty());
+        assertFalse(Files.exists(pending.stagedFile()));
+        assertEquals("new export", Files.readString(artifact));
+        assertTrue(queue().isEmpty());
+    }
+
+    @Test
+    void aFailedAttemptDoesNotPreventTheNextEntryFromCompleting() throws IOException {
+        Path invalidArtifact = Files.createDirectory(tempDirectory.resolve("not-a-file"));
+        Path validArtifact = Files.writeString(tempDirectory.resolve("export.csv"), "value");
+        RecordingTaskStorage storage = storage(1L, invalidArtifact);
+        storage.tasks.put(2L, task(2L, validArtifact));
+        writeQueue(intent(1L, invalidArtifact, 0), intent(2L, validArtifact, 0));
+
+        tasks(storage).recoverInterruptedArtifactDeletions();
+
+        assertEquals(1, queue().size());
+        assertEquals(1L, queue().get(0).getTaskId());
+        assertEquals(1, queue().get(0).getAttempts());
+        assertTrue(queue().get(0).getLastError().contains("not a regular file"));
+        assertTrue(storage.get(1L).isPresent());
+        assertTrue(storage.get(2L).isEmpty());
+        assertFalse(Files.exists(validArtifact));
     }
 
     private TaskServiceImpl tasks(RecordingTaskStorage storage) {
