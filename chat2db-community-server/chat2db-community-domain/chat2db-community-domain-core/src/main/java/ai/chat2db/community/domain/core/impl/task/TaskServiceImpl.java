@@ -11,8 +11,9 @@ import ai.chat2db.community.domain.api.model.task.TaskEventCode;
 import ai.chat2db.community.domain.api.model.task.TaskEventLevel;
 import ai.chat2db.community.domain.api.model.task.TaskQuery;
 import ai.chat2db.community.domain.api.model.task.TaskSpec;
-import ai.chat2db.community.domain.api.model.task.TaskStatus;
 import ai.chat2db.community.domain.api.model.task.TaskStage;
+import ai.chat2db.community.domain.api.model.task.TaskStatus;
+import ai.chat2db.community.domain.api.service.task.TaskDeletionService;
 import ai.chat2db.community.domain.api.service.task.TaskService;
 import ai.chat2db.community.domain.api.service.task.TaskStorage;
 import ai.chat2db.community.tools.exception.BusinessException;
@@ -37,17 +38,17 @@ public class TaskServiceImpl implements TaskService {
 
     private final LocalTaskManager localTaskManager;
 
-    private final ArtifactService artifactService;
+    private final TaskDeletionService deletionService;
 
-    public TaskServiceImpl(TaskStorage taskStorage, LocalTaskManager localTaskManager, ArtifactService artifactService) {
+    public TaskServiceImpl(TaskStorage taskStorage, LocalTaskManager localTaskManager, TaskDeletionService deletionService) {
         this.taskStorage = taskStorage;
         this.localTaskManager = localTaskManager;
-        this.artifactService = artifactService;
+        this.deletionService = deletionService;
     }
 
     @PostConstruct
     void recoverInterruptedArtifactDeletions() {
-        artifactService.retryPendingDeletions(taskStorage);
+        deletionService.retryPendingDeletions();
     }
 
     @Override
@@ -100,7 +101,7 @@ public class TaskServiceImpl implements TaskService {
         if (!TaskStatus.isTerminal(task.getStatus())) {
             throw new BusinessException(TaskConstants.DELETE_ACTIVE_FORBIDDEN_MESSAGE_CODE);
         }
-        artifactService.deleteTask(task, taskStorage);
+        deletionService.delete(task);
     }
 
     @Override
@@ -127,7 +128,7 @@ public class TaskServiceImpl implements TaskService {
                 || StringUtils.isBlank(task.getArtifactId())) {
             throw new DataNotFoundException();
         }
-        File file = artifactService.resolvePublishedArtifact(taskId, task.getArtifactId());
+        File file = deletionService.resolveArtifact(task);
         if (!file.isFile() || !file.canRead()) {
             throw new DataNotFoundException();
         }
