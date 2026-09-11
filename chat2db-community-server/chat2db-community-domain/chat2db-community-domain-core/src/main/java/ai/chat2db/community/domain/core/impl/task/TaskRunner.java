@@ -154,7 +154,14 @@ final class TaskRunner<S extends TaskSpec> implements Runnable {
                 return;
             }
             if (draft != null) {
-                artifactId = artifactService.publish(draft);
+                artifactId = artifactService.publish(draft, target -> taskStorage.appendEvent(TaskEvent.builder()
+                        .taskId(submission.taskId())
+                        .level(TaskEventLevel.INFO.name())
+                        .code(TaskEventCode.ARTIFACT_PUBLICATION_STARTED.name())
+                        .stage(TaskStage.FINALIZING.name())
+                        .message("Saving export file")
+                        .details(Map.of(TaskConstants.ARTIFACT_ID_DETAIL_KEY, target))
+                        .build()));
                 taskStorage.appendEvent(TaskEvent.builder()
                         .taskId(submission.taskId())
                         .level(TaskEventLevel.INFO.name())
