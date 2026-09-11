@@ -13,6 +13,7 @@ import ai.chat2db.community.updater.v2.enums.UpdateScopeEnum;
 import ai.chat2db.community.updater.v2.model.UpdateTransaction;
 import ai.chat2db.community.updater.v2.audit.UpdateAuditLog;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -30,6 +31,17 @@ class UpdateHelperMainTest {
 
     @TempDir
     Path temporaryDirectory;
+
+    @AfterEach
+    void awaitNormalCandidateExitBeforeDeletingItsWorkingDirectory() throws Exception {
+        Path pidFile = temporaryDirectory.resolve("success-install/normal.pid");
+        if (Files.isRegularFile(pidFile)) {
+            ProcessHandle process = ProcessHandle.of(Long.parseLong(Files.readString(pidFile))).orElse(null);
+            if (process != null) {
+                process.onExit().get(10, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        }
+    }
 
     @Test
     void commitsHealthyFullPackageAndDiscardsRollbackCopy() throws Exception {

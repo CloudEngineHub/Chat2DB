@@ -41,6 +41,7 @@ public final class FakeCandidateMain {
             System.exit(7);
         }
         if (!trial) {
+            Files.writeString(installRoot.resolve("normal.pid"), Long.toString(ProcessHandle.current().pid()));
             Files.writeString(installRoot.resolve("normal-restarted.txt"), "normal");
         }
         String status = trial ? "TRIAL_HEALTHY" : "NORMAL_HEALTHY";
