@@ -4,7 +4,7 @@ import { createWithEqualityFn } from 'zustand/traditional';
 import { StateCreator } from 'zustand/vanilla';
 import { IDatabaseBaseInfo } from '@/typings/database';
 import { ImportExportDataBoundInfo, ImportExportTaskDetails } from '@/typings/importExport';
-import { ImportExportTaskStatus } from '@/constants/importExport';
+import { ACTIVE_TASK_STATUSES, ImportExportTaskStatus } from '@/constants/importExport';
 import importExportServices from '@/service/importExport';
 import {
   createTaskListRequestCoordinator,
@@ -92,7 +92,6 @@ export const createImportExportAction: StateCreator<
   },
   getTaskList: () => {
     const requestGeneration = ++taskListRequestGeneration;
-    taskListRequestCoordinator.invalidateState();
     const previousActiveTaskIds = get().activeTaskIds;
     // clear timer
     const { getTaskListTimer } = get();
@@ -108,28 +107,21 @@ export const createImportExportAction: StateCreator<
       .then(async ([recentPage, pendingTasks, runningTasks]) => {
         if (requestGeneration !== taskListRequestGeneration) return;
         const activeTasks = mergeTasks(pendingTasks, runningTasks);
-        const previouslyLoadedTasks = get().taskList.filter((task) => !previousActiveTaskIds.includes(task.id));
-        const visibleTasks = mergeTasks(previouslyLoadedTasks, recentPage.data || [], activeTasks);
+        const visibleTasks = mergeTasks(recentPage.data || [], activeTasks);
         const recovered = await loadMissingTrackedTasks(
           previousActiveTaskIds,
           visibleTasks,
           importExportServices.getTaskDetails,
         );
         if (requestGeneration !== taskListRequestGeneration) return;
-        taskListRequestCoordinator.invalidateState();
-        const taskList = mergeTasks(visibleTasks, recovered.tasks);
-        const recoveredActiveTaskIds = recovered.tasks
-          .filter((task) => [ImportExportTaskStatus.PENDING, ImportExportTaskStatus.RUNNING].includes(task.status))
-          .map((task) => task.id);
-        const activeTaskIds = [
-          ...new Set([
-            ...activeTasks.map((task) => task.id),
-            ...recoveredActiveTaskIds,
-            ...recovered.unresolvedTaskIds,
-          ]),
-        ];
-        const pollDelay = getTaskPollingDelay(activeTaskIds.length);
         const currentState = get();
+        const taskList = mergeTasks(currentState.taskList, visibleTasks, recovered.tasks);
+        const knownTaskIds = new Set(taskList.map((task) => task.id));
+        const activeTaskIds = taskList
+          .filter((task) => ACTIVE_TASK_STATUSES.includes(task.status))
+          .map((task) => task.id);
+        activeTaskIds.push(...recovered.unresolvedTaskIds.filter((id) => !knownTaskIds.has(id)));
+        const pollDelay = getTaskPollingDelay(activeTaskIds.length);
         const notificationUpdate = reconcileCompletedTaskNotifications(
           currentState.taskStatusById,
           taskList,
@@ -179,16 +171,14 @@ export const createImportExportAction: StateCreator<
       .getTaskList({ pageNo: 1, pageSize: nextPageSize })
       .then((page) => {
         if (!taskListRequestCoordinator.canApplyLoadMoreResponse(loadMoreRequest)) return;
-        const activeStatuses = new Set<ImportExportTaskStatus>([
-          ImportExportTaskStatus.PENDING,
-          ImportExportTaskStatus.RUNNING,
-        ]);
-        const activeTasks = get().taskList.filter((task) => activeStatuses.has(task.status));
         set({
-          taskList: mergeTasks(page.data || [], activeTasks),
+          taskList: mergeTasks(page.data || [], get().taskList),
           taskListPageSize: nextPageSize,
           taskListHasNextPage: page.hasNextPage === true,
         });
+      })
+      .catch((error) => {
+        if (taskListRequestCoordinator.canApplyLoadMoreResponse(loadMoreRequest)) throw error;
       })
       .finally(() => {
         if (taskListRequestCoordinator.isLatestLoadMoreRequest(loadMoreRequest)) {
@@ -202,10 +192,11 @@ export const createImportExportAction: StateCreator<
     const { getTaskListTimer } = get();
     if (getTaskListTimer) {
       clearTimeout(getTaskListTimer);
-      set({ getTaskListTimer: null });
     }
+    set({ getTaskListTimer: null, taskListLoadingMore: false });
   },
   removeTask: (taskId) => {
+    taskListRequestGeneration += 1;
     taskListRequestCoordinator.invalidateState();
     const state = get();
     const taskStatusById = { ...state.taskStatusById };
@@ -214,6 +205,7 @@ export const createImportExportAction: StateCreator<
     set({
       taskList: state.taskList.filter((task) => task.id !== taskId),
       taskListPageSize: Math.max(TASK_CENTER_PAGE_SIZE, state.taskListPageSize - 1),
+      taskListLoadingMore: false,
       unreadCompletedTaskIds,
       unreadCompletedTaskCount: unreadCompletedTaskIds.length,
       taskStatusById,
@@ -236,6 +228,7 @@ export const createImportExportAction: StateCreator<
     }
     set({
       taskCenterOpen: open,
+      taskListLoadingMore: open ? state.taskListLoadingMore : false,
       unreadCompletedTaskCount: open ? 0 : get().unreadCompletedTaskCount,
       unreadCompletedTaskIds: open ? [] : get().unreadCompletedTaskIds,
       getTaskListTimer: !open && state.activeTaskIds.length === 0 ? null : state.getTaskListTimer,

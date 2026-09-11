@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { ImportExportTaskStatus, ImportExportTaskType } from '@/constants/importExport';
 import { ImportExportTaskDetails, ImportExportTaskEvent } from '@/typings/importExport';
 import {
-  createTaskListRequestCoordinator,
   FAILED_TASK_POLL_INTERVAL,
   getTaskPollingDelay,
   listAllTasksByStatus,
@@ -11,6 +10,7 @@ import {
   mergeTasks,
   reconcileCompletedTaskNotifications,
   shouldKeepTaskPolling,
+  shouldRefreshImportTargetTable,
   shouldRetryTaskPolling,
 } from './taskCenterUtils';
 import { ErrorCode } from '@/constants/request';
@@ -38,14 +38,6 @@ const task = (
   progress,
   createdAt,
 });
-
-const deferred = <T>() => {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
-};
 
 async function testActiveTaskPagination() {
   const requestedPages: number[] = [];
@@ -106,6 +98,25 @@ function testTaskMerge() {
   );
   assert.equal(tasks[1].status, ImportExportTaskStatus.RUNNING);
   assert.equal(tasks[1].progress, 50);
+}
+
+function testTaskMergePreservesLatestRevision() {
+  const oldTask = { ...task(1, ImportExportTaskStatus.RUNNING, '2026-08-06T10:00:00Z', 20), updatedAt: 1000 };
+  const latestTask = { ...oldTask, progress: 80, updatedAt: '1970-01-01T00:00:02.000Z' };
+  assert.deepEqual(mergeTasks([latestTask], [oldTask]), [latestTask]);
+  assert.deepEqual(mergeTasks([oldTask], [latestTask]), [latestTask]);
+
+  const terminalStatuses = [
+    ImportExportTaskStatus.SUCCESS, ImportExportTaskStatus.FAILED, ImportExportTaskStatus.CANCELLED,
+  ];
+  for (const status of terminalStatuses) {
+    const terminal = { ...oldTask, status, progress: 100 };
+    assert.deepEqual(mergeTasks([terminal], [latestTask]), [terminal]);
+    assert.deepEqual(mergeTasks([latestTask], [terminal]), [terminal]);
+  }
+
+  const withoutRevision = task(1, ImportExportTaskStatus.SUCCESS, '2026-08-06T10:00:00Z', 100);
+  assert.deepEqual(mergeTasks([withoutRevision], [oldTask]), [withoutRevision]);
 }
 
 function testEventMerge() {
@@ -180,61 +191,45 @@ function testCompletedTaskNotifications() {
   assert.deepEqual(afterDeletion.newlyCompletedTaskIds, []);
 }
 
-async function testStaleLoadMoreCannotResurrectDeletedTask() {
-  const coordinator = createTaskListRequestCoordinator();
-  const deletedTask = task(1, ImportExportTaskStatus.SUCCESS, '2026-08-06T10:00:00Z', 100);
-  const response = deferred<ImportExportTaskDetails[]>();
-  const request = coordinator.beginLoadMoreRequest();
-  let tasks: ImportExportTaskDetails[] = [deletedTask];
-  const loadMore = response.promise.then((incomingTasks) => {
-    if (coordinator.canApplyLoadMoreResponse(request)) {
-      tasks = mergeTasks(incomingTasks);
-    }
-  });
+function testImportTargetRefreshWaitsForTerminalImportResult() {
+  const runningImport = {
+    ...task(10, ImportExportTaskStatus.RUNNING, '2026-08-06T10:00:00Z', 45),
+    type: ImportExportTaskType.DATA_FILE_IMPORT,
+    target: {
+      dataSourceId: 7,
+      databaseName: 'app',
+      tableName: 'orders',
+    },
+  };
+  const successfulImport = {
+    ...runningImport,
+    status: ImportExportTaskStatus.SUCCESS,
+    progress: 100,
+  };
+  const failedImport = {
+    ...runningImport,
+    status: ImportExportTaskStatus.FAILED,
+  };
+  const activeExport = {
+    ...runningImport,
+    type: ImportExportTaskType.TABLE_DATA_EXPORT,
+  };
 
-  coordinator.invalidateState();
-  tasks = [];
-  response.resolve([deletedTask]);
-  await loadMore;
-
-  assert.deepEqual(tasks, []);
-  assert.equal(coordinator.isLatestLoadMoreRequest(request), true);
-}
-
-async function testStaleLoadMoreCannotOverwriteNewerPollingState() {
-  const coordinator = createTaskListRequestCoordinator();
-  const runningTask = task(1, ImportExportTaskStatus.RUNNING, '2026-08-06T10:00:00Z', 75);
-  const completedTask = { ...runningTask, status: ImportExportTaskStatus.SUCCESS, progress: 100 };
-  const response = deferred<ImportExportTaskDetails[]>();
-  const staleRequest = coordinator.beginLoadMoreRequest();
-  let tasks: ImportExportTaskDetails[] = [runningTask];
-  const loadMore = response.promise.then((incomingTasks) => {
-    if (coordinator.canApplyLoadMoreResponse(staleRequest)) {
-      tasks = mergeTasks(incomingTasks);
-    }
-  });
-
-  coordinator.invalidateState();
-  tasks = [completedTask];
-  response.resolve([runningTask]);
-  await loadMore;
-
-  assert.equal(tasks[0].status, ImportExportTaskStatus.SUCCESS);
-
-  const olderRequest = coordinator.beginLoadMoreRequest();
-  const latestRequest = coordinator.beginLoadMoreRequest();
-  assert.equal(coordinator.canApplyLoadMoreResponse(olderRequest), false);
-  assert.equal(coordinator.canApplyLoadMoreResponse(latestRequest), true);
+  assert.equal(shouldRefreshImportTargetTable(undefined, runningImport), false);
+  assert.equal(shouldRefreshImportTargetTable(undefined, successfulImport), true);
+  assert.equal(shouldRefreshImportTargetTable(runningImport, activeExport), false);
+  assert.equal(shouldRefreshImportTargetTable(runningImport, failedImport), false);
+  assert.equal(shouldRefreshImportTargetTable(runningImport, successfulImport), true);
+  assert.equal(shouldRefreshImportTargetTable(successfulImport, successfulImport), false);
 }
 
 void testActiveTaskPagination().then(async () => {
   await testCompletedTrackedTaskOutsideRecentPage();
-  await testStaleLoadMoreCannotResurrectDeletedTask();
-  await testStaleLoadMoreCannotOverwriteNewerPollingState();
   testTaskMerge();
+  testTaskMergePreservesLatestRevision();
   testEventMerge();
   testPollingDelay();
   testPollingRetryPolicy();
   testCompletedTaskNotifications();
-  console.log('Task center utility tests passed');
+  testImportTargetRefreshWaitsForTerminalImportResult();
 });
