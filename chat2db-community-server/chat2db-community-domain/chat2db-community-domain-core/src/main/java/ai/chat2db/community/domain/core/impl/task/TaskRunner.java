@@ -9,9 +9,10 @@ import ai.chat2db.community.domain.api.model.task.TaskEventCode;
 import ai.chat2db.community.domain.api.model.task.TaskEventLevel;
 import ai.chat2db.community.domain.api.model.task.TaskExecutionException;
 import ai.chat2db.community.domain.api.model.task.TaskSpec;
+import ai.chat2db.community.domain.api.model.task.TaskStage;
 import ai.chat2db.community.domain.api.model.task.TaskStatus;
 import ai.chat2db.community.domain.api.model.task.TaskStatusPatch;
-import ai.chat2db.community.domain.api.model.task.TaskStage;
+import ai.chat2db.community.domain.api.service.task.ArtifactService;
 import ai.chat2db.community.domain.api.service.task.TaskExecutor;
 import ai.chat2db.community.domain.api.service.task.TaskStorage;
 import ai.chat2db.community.domain.core.impl.task.extension.TaskExtensionManager;
@@ -244,16 +245,6 @@ final class TaskRunner<S extends TaskSpec> implements Runnable {
 
     private void completeCancelledLocked(ArtifactDraft draft) {
         artifactService.deleteDraft(draft);
-        Date now = new Date();
-        taskStorage.compareAndSetStatus(submission.taskId(), TaskStatus.RUNNING.name(),
-                TaskStatus.CANCELLED.name(),
-                TaskStatusPatch.builder()
-                        .stage(TaskStage.CANCELLED.name())
-                        .progressMessage("Task cancelled")
-                        .finishedAt(now)
-                        .updatedAt(now)
-                        .build(),
-                lifecycleEvent(TaskEventCode.TASK_CANCELLED.name(), TaskEventLevel.INFO.name(), "Task cancelled"));
     }
 
     private TaskEvent lifecycleEvent(String code, String level, String message) {
