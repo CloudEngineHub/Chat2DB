@@ -630,8 +630,12 @@ const ConnectionEdit = forwardRef((props: IProps, ref: ForwardedRef<ICreateConne
       .then(() => {
         staticMessage.success(i18n('connection.message.testConnectResult', i18n('common.text.successful')));
       })
-      .catch((error) => {
-        staticMessage.error(error?.message || i18n('common.text.failure'));
+      .catch((error: unknown) => {
+        if (error instanceof Error) {
+          staticMessage.error(getConnectionErrorMessage(error));
+        } else if (typeof error === 'string' && error.startsWith('timeout_error:')) {
+          staticMessage.error(i18n('connection.message.testSshTimeout'));
+        }
       })
       .finally(() => {
         setLoading({
